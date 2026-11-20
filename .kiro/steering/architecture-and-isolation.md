@@ -31,7 +31,8 @@ Suture is a zero-backend, local-first spreadsheet engine. Every computation runs
 
 - DuckDB-WASM and Pyodide MUST NEVER be instantiated or executed on the main UI thread. Each runs in its own dedicated Web Worker in `packages/web`.
 - The main thread owns only: React rendering, input handling, the virtualized grid, and message routing.
-- `core` evaluation of pure formulas may run on the main thread only when it is bounded and synchronous for the visible recalculation set. Any evaluation that awaits an engine is asynchronous and never blocks a frame.
+- `core` may evaluate literal and formula cells on the main thread for the **whole dirty set**, not only visible cells, because off-screen cells feed visible KPIs and assertions. It does so in synchronous slices of at most 8 ms, yielding to the event loop between slices (`RecalcOptions.sliceMs` + `EngineDeps.yieldControl`) to preserve 60 fps. Any evaluation that awaits an engine is asynchronous and never blocks a frame.
+- **Zero nested workers.** No worker ever creates another worker. The main thread creates every worker (DuckDB, Pyodide, ingest, Exorcist) as a top-level dedicated worker, and workers reach each other only through `MessageChannel` ports handed out by the main thread. This also rules out engine builds that spawn their own sub-workers, such as DuckDB's pthread (COI) bundle.
 - Every worker request carries a request id and a recalculation generation id. Responses for a superseded generation are discarded (see `dag-and-type-contract.md`, Scheduling).
 - Worker messages are validated on receipt on both sides. A malformed message is a protocol error, logged and surfaced as `#SQL!` or `#PY!` on the requesting cell; it never crashes the worker or the UI.
 
@@ -57,8 +58,10 @@ Cross-Origin-Embedder-Policy: credentialless
 
 - `credentialless` is chosen over `require-corp` so cross-origin assets such as the Pyodide and DuckDB bundles load without each origin sending `Cross-Origin-Resource-Policy`.
 - At startup the app reads `globalThis.crossOriginIsolated` and checks that `SharedArrayBuffer` exists.
-  - **Isolated:** DuckDB may use its multi-threaded (COI) bundle; Pyodide registers a `SharedArrayBuffer` interrupt buffer for cancellation.
-  - **Not isolated** (for example, browsers without COEP `credentialless` support, or a preview deployment missing headers): DuckDB automatically uses its single-threaded bundle, and timeouts use terminate-and-respawn (see `dag-and-type-contract.md`, Timeouts). The app stays fully functional.
+- DuckDB always uses its single-threaded bundle (`eh`, else `mvp`), loaded with duckdb-wasm's synchronous bindings inside the DuckDB worker. The COI bundle is not used, because it spawns pthread sub-workers (forbidden by §2). Cell evaluation is single-threaded for determinism anyway.
+  - **Isolated:** each engine worker gets a `SharedArrayBuffer` control buffer. For Pyodide it is the interrupt buffer. For DuckDB it is a cancel flag that the worker checks between result chunks. Cancels and timeouts are cooperative, and the worker survives.
+  - **Escalation:** if a cooperative cancel does not settle within 1,000 ms, the worker is terminated and respawned, even when isolated. This happens, for example, when a C/NumPy kernel never reaches Python's interrupt check, or when a single long DuckDB operator never yields a chunk. Only that request's cells become `#TIMEOUT!`, and queued work is re-dispatched after engine state is restored.
+  - **Not isolated** (for example, browsers without COEP `credentialless` support, or a preview deployment missing headers): there is no shared buffer, so timeouts use terminate-and-respawn directly (see `dag-and-type-contract.md`, Timeouts). The app stays fully functional.
 - Degraded mode is shown honestly in the engine readiness indicator. It is never hidden and never treated as an error.
 
 ## 5. Dependency & license policy

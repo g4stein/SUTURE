@@ -31,6 +31,7 @@ You audit and report. You do not edit source files. Use the shell only for read-
 - Before transfer the view owns its whole buffer (`byteOffset === 0 && byteLength === buffer.byteLength`), or is sliced first.
 - The sender never reads a buffer after transferring it.
 - DuckDB to Pyodide traffic uses the direct `MessageChannel`, not a main-thread relay.
+- SQL validation uses `json_serialize_sql` when the init probe succeeds, and the lexical guard otherwise; `duckdb.ready.validator` reports which.
 - Pyodide receives numeric columns as typed-array buffers (`numpy.frombuffer` / `numpy.asarray`). `pyarrow` and `pandas` are never loaded, and `loadPackage` requests only `numpy`.
 
 ### Memory disposal
@@ -40,8 +41,8 @@ You audit and report. You do not edit source files. Use the shell only for read-
 
 ### Cross-origin isolation & timeouts
 - The deployment config sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` for documents and worker scripts.
-- Bundle selection reads `crossOriginIsolated` and `SharedArrayBuffer` availability. When isolation is missing, DuckDB uses its single-threaded bundle and the readiness indicator reports `degraded`.
-- Timeouts: with isolation, cancellation is cooperative (Pyodide interrupt buffer, DuckDB query cancellation). Without it, the worker is terminated and respawned, only in-flight cells get `#TIMEOUT!`, queued work is re-dispatched, and required engine state is restored.
+- Zero nested workers: no worker calls `new Worker`, and DuckDB runs through its synchronous bindings with the single-threaded `eh`/`mvp` bundle (never the pthread COI bundle). Isolation is read from `crossOriginIsolated` and `SharedArrayBuffer`; without it, the readiness indicator reports `degraded` (timeouts restart the engine).
+- Timeouts: with isolation, cancellation is cooperative (Pyodide interrupt buffer, DuckDB shared cancel flag checked between result chunks) and escalates to terminate-and-respawn if it does not settle within 1,000 ms. Without isolation, the worker is terminated and respawned directly, only in-flight cells get `#TIMEOUT!`, queued work is re-dispatched, and required engine state is restored.
 
 ### Cold-load budgets
 - Grid interactive before any engine bytes are fetched. DuckDB is fetched only on the first `=SQL()` or when idle. Pyodide and NumPy are fetched only on the first `=PY()` or when idle, after DuckDB.

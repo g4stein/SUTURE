@@ -41,7 +41,7 @@ Suture looks like a quantitative terminal: dense, precise, quiet. The Kiroween m
 ## 3. Performance: zero main-thread jank
 
 - The grid is virtualized: only visible rows and columns plus a small overscan are mounted.
-- DuckDB and Pyodide never run on the main thread, and pure-formula evaluation there is bounded to the visible recalculation set (see `architecture-and-isolation.md`, Worker isolation). A main-thread task longer than 50 ms during scrolling, typing, or X-Ray rendering is a defect.
+- DuckDB and Pyodide never run on the main thread. Formula evaluation there covers the whole dirty set, in slices of at most 8 ms that yield to the event loop between slices (see `architecture-and-isolation.md`, Worker isolation). A main-thread task longer than 50 ms during scrolling, typing, or X-Ray rendering is a defect.
 - Scrolling and selection must not trigger React re-renders of off-screen cells or synchronous layout reads inside render loops.
 
 ## 4. Honest engine readiness
@@ -52,9 +52,10 @@ Engines load progressively. The grid is never blocked waiting for them.
 2. **DuckDB** loads lazily on the first `=SQL()` cell (or when the browser is idle).
 3. **Pyodide + NumPy** loads lazily on the first `=PY()` cell (or when the browser is idle, after DuckDB).
 
-- The indicator shows one of these states per engine: `not loaded`, `loading`, `ready`, `degraded`, `failed`.
+- The indicator tracks one of these internal states per engine: `not loaded`, `loading`, `ready`, `degraded`, `failed`.
+- Display labels: `not loaded` is shown as **Lazy** (for example `Python/NumPy Lazy`), meaning the engine will load on first use. Once loading begins the label is never Lazy again: it moves to `Loading`, then `Ready`, `Degraded (…)`, or `Failed`. The other states are shown by name.
 - Show real progress only when the loader reports bytes. Otherwise show an indeterminate state. Never show a fake percentage.
-- `degraded` states the reason in plain words, for example "DuckDB: single-threaded (page is not cross-origin isolated)".
+- `degraded` states the reason in plain words, for example "DuckDB: timeouts restart the engine (page is not cross-origin isolated)".
 - Cells waiting for an engine show a pending state, not an error and not a stale value.
 
 ## 5. Trademark hygiene

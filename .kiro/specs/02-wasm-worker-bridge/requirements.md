@@ -25,6 +25,7 @@ Glossary:
 2. THE SYSTEM SHALL parse `.xlsx` files only inside the ingest worker.
 3. THE SYSTEM SHALL NOT import `@duckdb/duckdb-wasm`, `pyodide`, or `exceljs` from any module reachable from the main-thread entry point.
 4. THE SYSTEM SHALL create engine workers lazily: the DuckDB worker on the first `=SQL()` evaluation or dataset upload, or when idle after the grid is interactive; the Pyodide worker on the first permitted `=PY()` evaluation, or when idle only if the open workbook contains `=PY()` cells and its Python is trusted (Spec 04 Req 6.5).
+5. THE SYSTEM SHALL create every worker (DuckDB, Pyodide, ingest, Exorcist) as a top-level dedicated worker on the main thread, SHALL NOT create a worker from inside another worker, and SHALL NOT use engine builds that spawn sub-workers (such as DuckDB's pthread bundle).
 
 ### Requirement 2: Typed RPC protocol
 
@@ -47,22 +48,22 @@ Glossary:
 1. THE SYSTEM SHALL accept an `AbortSignal` on the bridge API, and SHALL adapt it to the core `CancellationToken`.
 2. WHEN a request is cancelled before it starts, THE SYSTEM SHALL remove it from the worker queue and respond `cancelled`.
 3. WHEN a request's deadline, measured from the moment the worker reports it `started`, expires, THE SYSTEM SHALL resolve that request's cells to `#TIMEOUT!` and no others. Time spent queued never counts toward a deadline.
-4. WHILE isolated, WHEN a running DuckDB query is cancelled or times out, THE SYSTEM SHALL cancel it cooperatively, and the worker SHALL survive.
+4. WHILE isolated, WHEN a running DuckDB query is cancelled or times out, THE SYSTEM SHALL cancel it cooperatively through the shared cancel flag, which the worker checks between result chunks, and the worker SHALL survive.
 5. WHILE isolated, WHEN running Python is cancelled or times out, THE SYSTEM SHALL raise `KeyboardInterrupt` through Pyodide's interrupt buffer, and the worker SHALL survive.
-6. IF a cooperative cancel does not complete within 1,000 ms, THEN THE SYSTEM SHALL terminate and respawn the worker.
+6. IF a cooperative cancel does not complete within 1,000 ms (for example, a NumPy C kernel that never reaches Python's interrupt check, or a DuckDB operator that never yields a chunk), THEN THE SYSTEM SHALL terminate and respawn the worker even while isolated, resolve only that request (`#TIMEOUT!` when the escalation was caused by its deadline, `cancelled` when caused by an abort), and re-dispatch queued requests after restoring engine state.
 7. WHILE not isolated, WHEN a running request times out, THE SYSTEM SHALL terminate and respawn the worker, mark only the running request's cells `#TIMEOUT!`, and re-dispatch the queued requests after restoring engine state.
 8. THE SYSTEM SHALL use default deadlines of 10,000 ms for single evaluations, 60,000 ms for batch evaluations, and 120,000 ms for initialization, dataset registration, and `.xlsx` ingestion.
 
 ### Requirement 4: DuckDB lifecycle
 
-**User Story:** As an analyst, I want DuckDB to load the fastest bundle my browser supports, and to keep working when it can't use threads.
+**User Story:** As an analyst, I want DuckDB to load reliably in every browser, without nested workers.
 
 #### Acceptance Criteria
-1. WHEN the DuckDB worker initializes while isolated, THE SYSTEM SHALL load the cross-origin-isolated (threaded) bundle.
-2. WHEN the DuckDB worker initializes while not isolated, THE SYSTEM SHALL load the single-threaded bundle and report the engine state `degraded` with the reason "single-threaded (page is not cross-origin isolated)".
+1. WHEN the DuckDB worker initializes, THE SYSTEM SHALL load the single-threaded `eh` bundle (or `mvp` where WebAssembly exception handling is unsupported) through duckdb-wasm's synchronous bindings inside the DuckDB worker, and SHALL NOT load the pthread (COI) bundle.
+2. WHEN the DuckDB worker initializes while not isolated, THE SYSTEM SHALL report the engine state `degraded` with the reason "timeouts restart the engine (page is not cross-origin isolated)", and WHILE isolated, SHALL report `ready`.
 3. THE SYSTEM SHALL open the database with `castDecimalToDouble: true`, disable extension autoload and autoinstall, and install the Suture deterministic macros (`design.md` §5.4).
 4. THE SYSTEM SHALL evaluate cell queries with `threads = 1`, so that results are deterministic.
-5. IF the `json_serialize_sql` function is unavailable at initialization, THEN THE SYSTEM SHALL report the engine state `failed` with that reason.
+5. IF the `json_serialize_sql` probe fails at initialization, THEN THE SYSTEM SHALL validate cell queries with the deterministic lexical guard (`design.md` §5.3.2), report `validator: 'lexical'` in `duckdb.ready`, and SHALL NOT fail startup.
 6. WHEN initialization emits download progress, THE SYSTEM SHALL forward byte counts to clients as `progress` messages.
 
 ### Requirement 5: Datasets
@@ -83,7 +84,7 @@ Glossary:
 **User Story:** As an analyst, I want SQL cells to run safely and return tables or scalars without copying data needlessly.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL validate every cell query with `json_serialize_sql` and SHALL reject, with `#SQL!`, anything other than exactly one `SELECT` statement.
+1. THE SYSTEM SHALL validate every cell query, using the `json_serialize_sql` AST validator when available and otherwise the lexical guard, and SHALL reject with `#SQL!` anything other than exactly one read-only `SELECT`/`WITH` statement.
 2. IF a query references a base table that is not a registered dataset, a binding identifier of the current request, or a CTE defined in the same query, THEN THE SYSTEM SHALL reject it with `#SQL!`.
 3. IF a query calls a table function other than `range`, `generate_series`, or `unnest`, THEN THE SYSTEM SHALL reject it with `#SQL!`.
 4. THE SYSTEM SHALL bind scalar parameters through prepared statements.

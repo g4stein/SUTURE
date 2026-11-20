@@ -51,14 +51,14 @@ Each task is done when its "Verify" check passes. Run tests with `npx vitest --r
     - Verify: a test asserts the registry key set equals the 30 names, and that `IFNA`, `ISERR`, `ISNA`, `ERROR.TYPE`, `XLOOKUP`, and `RAND` return `null`.
     - _Requirements: 6.1, 6.2, 6.3_
   - [ ] 5.3 Implement the native kernels: `IF`, `AND`, `OR`, `NOT`, `IFERROR`, `ISERROR`, `ISBLANK`, `ISNUMBER`, `INDEX`, `ROUND`, `POWER`, `NPV`, `PMT`, `IRR`, with `ipow`.
-    - Verify: a conformance test covers every edge-case cell in design §6.4 for these rows, including `ROUND(1.005,2)=1.01`, `POWER(0,0)`→`#NUM!`, `NPV(-1,…)`→`#DIV/0!`, and `IRR` non-convergence→`#NUM!`.
-    - _Requirements: 6.4, 7.2, 7.3, 7.4, 11.5_
+    - Verify: a conformance test covers every edge-case cell in design §6.4 for these rows, including `IF(B4=0,0,A4/B4)` with `B4=0` → `0` (untaken branch never evaluated; an instrumented counter shows zero evaluations), `IF(A1,1,2)` with `A1=#N/A` → `#N/A`, `ROUND(1.005,2)=1.01`, `POWER(0,0)`→`#NUM!`, `NPV(-1,…)`→`#DIV/0!`, and `IRR` non-convergence→`#NUM!`.
+    - _Requirements: 6.4, 7.2, 7.3, 7.4, 7.6, 11.5_
   - [ ] 5.4 Wire the formulajs kernels for the remaining 16 functions through the error-first, coercion, and normalization pipeline (design §6.2).
     - Verify: a conformance test covers every formulajs row, including `MOD(5,0)`→`#DIV/0!`, `AVERAGE()` over empty→`#DIV/0!`, `VLOOKUP` miss→`#N/A`, `col>width`→`#REF!`, and criteria wildcards with `~` escape. Any failing row is fixed by a native kernel in this task.
     - _Requirements: 6.4, 6.5_
-  - [ ] 5.5 Implement `firstError` and the eager-argument evaluator.
-    - Verify: `=IF(TRUE, 1, A1)` with `A1=#DIV/0!` gives `#DIV/0!` with `origin` `A1`, and `=SUM(B1:B3)` with errors in `B2` and `B3` gives `B2`'s error.
-    - _Requirements: 7.1, 7.2_
+  - [ ] 5.5 Implement `firstError`, `evaluatedLeaves`, and the argument evaluator (eager except `IF`).
+    - Verify: `=IF(TRUE, A1, 1)` with `A1=#DIV/0!` gives `#DIV/0!` with `origin` `A1`; `=IF(FALSE, A1, 1)` gives `1`; `=SUM(B1:B3)` with errors in `B2` and `B3` gives `B2`'s error; `evaluatedLeaves` of `IF(C1>0, A1, B1)` lists `C1, A1` when `C1=5`.
+    - _Requirements: 7.1, 7.2, 7.6_
 
 - [ ] 6. Graph
   - [ ] 6.1 Implement `graph/depGraph.ts` and `graph/rangeIndex.ts` (column buckets of 64).

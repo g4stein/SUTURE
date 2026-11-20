@@ -31,7 +31,7 @@ Unit tests run with `npx vitest --run` in `packages/web`. End-to-end tests run w
 
 - [ ] 4. Readiness pill
   - [ ] 4.1 Implement `engineLabel` and `ReadinessPill` with the popover and Retry.
-    - Verify: a unit test maps every `EngineState` per design §4; an e2e on a fresh page shows `Grid Ready | DuckDB Lazy | Python/NumPy Lazy`, then `Loading` and `Ready` after the first `=SQL()`; an unisolated page shows `Degraded (single-threaded)` with the full reason in the accessible name; a known-length download shows a percentage and an unknown-length one does not.
+    - Verify: a unit test maps every `EngineState` per design §4; an e2e on a fresh page shows `Grid Ready | DuckDB Lazy | Python/NumPy Lazy`, then `Loading` and `Ready` after the first `=SQL()`; an unisolated page shows `Degraded (restart on timeout)` for both engines with the full reason in the accessible name; after a crash respawn the label goes `Loading` → `Ready`, never back to `Lazy`; a known-length download shows a percentage and an unknown-length one does not.
     - _Requirements: 4.1–4.6_
 
 - [ ] 5. X-Ray

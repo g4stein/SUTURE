@@ -24,14 +24,16 @@ Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with
     - _Requirements: 3.2, 2.7_
 
 - [ ] 4. DuckDB worker
-  - [ ] 4.1 Implement init: bundle selection by isolation, the nested worker via Blob URL, `castDecimalToDouble`, the `SET`s, and the `json_serialize_sql` probe.
-    - Verify: Playwright on a page served with COOP/COEP reports `coi` and `ready`; without the headers it reports `eh`/`mvp` and `degraded` with the exact reason string.
+  - [ ] 4.1 Implement init: `eh`/`mvp` bundle selection, duckdb-wasm synchronous bindings inside the worker, `castDecimalToDouble`, the `SET`s, the cancel buffer, and the `json_serialize_sql` probe with validator selection.
+    - Verify (Day 2 probe): confirm the pinned version's synchronous-binding export names and that `json_serialize_sql` exists, and record both in the task notes.
+    - Verify: Playwright on a page served with COOP/COEP reports `ready` with bundle `eh`; without the headers it reports `degraded` with the exact reason string; in both cases a `Worker` constructor spy inside the DuckDB worker records zero calls; a build with the probe forced to fail reports `validator: 'lexical'` and still answers `SELECT 42`.
     - _Requirements: 4.1–4.6_
   - [ ] 4.2 Install the deterministic macros.
     - Verify: a known-answer test shows `suture_h32(x)` equals core's lowbias32 finalizer for x in 0..9999; `suture_u01` lies in [0,1) over 100,000 values.
     - _Requirements: 4.3_
-  - [ ] 4.3 Implement `validateSerializedSql`.
-    - Verify: a table test accepts `SELECT`, CTEs, `range()`, dataset names, and `__suture_b0`; it rejects `CREATE`, `COPY`, `ATTACH`, `PRAGMA`, `SET`, two statements, `FROM 'x.csv'`, `FROM 'https://…'`, `read_csv(...)`, `__res_*`, an unbound `__suture_b1`, and `other_catalog.t`.
+  - [ ] 4.3 Implement `validateSerializedSql` and `validateLexical`.
+    - Verify: one shared table test runs against both validators. Both accept `SELECT`, CTEs, `range()`, dataset names, and `__suture_b0`. Both reject `CREATE`, `COPY`, `ATTACH`, `PRAGMA`, `SET`, two statements, `FROM 'x.csv'`, `FROM "x.csv"`, `FROM 'https://…'`, `read_csv(...)` in any position, `__res_*`, an unbound `__suture_b1`, `other_catalog.t`, `$$dollar$$` strings, and `;` inside a comment followed by `DROP`.
+    - Verify: a 1,000-query generated corpus shows the lexical guard never accepts a query the AST validator rejects for a forbidden class (design §5.3.2).
     - _Requirements: 6.1, 6.2, 6.3_
   - [ ] 4.4 Implement query and queryBatch: prepared statements, bindings and views, streaming `send`, IPC encoding, the result cache with LRU, core normalization/collapse in-worker, and `releaseResults`.
     - Verify: `SELECT 1/0.0` gives `#NUM!` or `null` as the steering rules require; `SELECT 42` gives the scalar `42`; a 100k-row result arrives with its buffer transferred; queryBatch over 200 param sets returns 200 values in one response; releasing ids drops the temp tables (checked via `duckdb_tables()`).
@@ -60,8 +62,8 @@ Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with
     - _Requirements: 7.5; Spec 01 Req 12.2, 12.3_
 
 - [ ] 7. Deadlines and escalation
-  - [ ] 7.1 Implement cooperative cancel for DuckDB (`cancelSent`) and Pyodide (interrupt ticket), with the 1,000 ms escalation.
-    - Verify (isolated, Chromium): `while True: pass` times out to `#TIMEOUT!` and the worker survives (the next run succeeds without re-init); a ticket mismatch re-runs the job.
+  - [ ] 7.1 Implement cooperative cancel for DuckDB (shared cancel flag between chunks) and Pyodide (interrupt ticket), with the 1,000 ms escalation.
+    - Verify (isolated, Chromium): `while True: pass` times out to `#TIMEOUT!` and the worker survives (the next run succeeds without re-init); a long multi-chunk DuckDB scan cancels cooperatively; a single blocking NumPy call (`np.linalg.svd` of a large matrix) and a DuckDB query whose single operator yields no chunk before the deadline (a large self-join with `count(*)`) each escalate to respawn after 1,000 ms with only that cell `#TIMEOUT!`; a ticket mismatch re-runs the job.
     - _Requirements: 3.4, 3.5, 3.6_
   - [ ] 7.2 Implement terminate-and-respawn on timeout when not isolated.
     - Verify (WebKit or an unisolated page): an infinite loop gives `#TIMEOUT!` on that cell only; a queued request behind it completes after respawn; datasets are queryable again.
@@ -82,7 +84,7 @@ Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with
     - _Requirements: 1.4, 10.1–10.3_
   - [ ] 9.3 Add the bundle-boundary check.
     - Verify: a build test asserts that the main-thread chunk graph contains no module from `@duckdb/duckdb-wasm`, `pyodide`, or `exceljs`.
-    - _Requirements: 1.1–1.3_
+    - _Requirements: 1.1–1.3, 1.5_
 
 - [ ] 10. Ingest worker
   - [ ] 10.1 Implement `ingest.worker.ts` per design §8.

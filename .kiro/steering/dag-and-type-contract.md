@@ -133,12 +133,17 @@ IEEE-754 `NaN` or `±Infinity` produced in JavaScript, SQL, or NumPy is normaliz
 
 ## 5. Error propagation
 
-- A formula that references a `CellError`, directly or through a range, evaluates to that upstream `CellError`. `code`, `origin`, and `engine` are preserved unchanged.
+- A formula that evaluates a reference to a `CellError`, directly or through a range, evaluates to that upstream `CellError`. `code`, `origin`, and `engine` are preserved unchanged.
+- Every function evaluates its arguments eagerly, left to right, **except `IF`**, which short-circuits:
+  - `cond` is evaluated first, and a `CellError` in `cond` propagates immediately;
+  - then only the taken branch is evaluated, and any `CellError` it produces propagates;
+  - the untaken branch is never evaluated, so its errors cannot propagate. This keeps the universal division guard `=IF(B4=0, 0, A4/B4)` working.
+  - `IF` is not an error-catching function.
 - **Only `IFERROR` and `ISERROR` may intercept errors.**
   - `IFERROR(value, fallback)` returns `fallback` when `value` is a `CellError`, otherwise `value`.
   - `ISERROR(value)` returns `true` for any `CellError`, otherwise `false`.
 - `IFNA`, `ISERR`, `ISNA`, and `ERROR.TYPE` are outside the supported function subset and resolve to `#NAME?`, like every other function missing from the allowlist.
-- **Deterministic choice:** if several inputs are errors, the propagated error is the first one in argument evaluation order (arguments left to right; ranges row-major, top-left first).
+- **Deterministic choice:** if several evaluated inputs are errors, the propagated error is the first one in argument evaluation order (arguments left to right; ranges row-major, top-left first; for `IF`, `cond` and then the taken branch).
 - `=SQL()` and `=PY()` cells whose inputs contain a `CellError` do not execute. They take the upstream error immediately.
 - An error is a value: dependents of an error cell are recalculated and receive the propagated error. They are never skipped or left stale.
 
@@ -153,5 +158,5 @@ IEEE-754 `NaN` or `±Infinity` produced in JavaScript, SQL, or NumPy is normaliz
 ## 7. Timeouts
 
 - Each `=SQL()` and `=PY()` evaluation has a deadline. Exceeding it yields `#TIMEOUT!` on that cell only.
-- **When `crossOriginIsolated` and `SharedArrayBuffer` are available:** cancel cooperatively (Pyodide interrupt buffer; DuckDB pending-query cancellation). The worker survives.
+- **When `crossOriginIsolated` and `SharedArrayBuffer` are available:** cancel cooperatively (Pyodide interrupt buffer; DuckDB shared cancel flag checked between result chunks), and the worker survives. If the cancel does not settle within 1,000 ms, terminate and respawn the worker as below; only that request's cells become `#TIMEOUT!`.
 - **When they are unavailable** (for example in Safari): terminate the worker and respawn it. Only cells whose evaluation was in flight on that worker become `#TIMEOUT!`. Queued requests are re-dispatched to the new worker, and any engine state they need (for example registered DuckDB tables) is restored before they run.

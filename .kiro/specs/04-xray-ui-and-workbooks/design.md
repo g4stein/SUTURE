@@ -47,6 +47,7 @@ flowchart LR
 
 - The main-thread `WorkbookEngine` runs with `sliceMs: 8` and a `yieldControl` that resolves on a fresh `MessageChannel` message (Spec 01 Req 10.7). Formula evaluation therefore never holds the main thread for longer than one slice plus one cell.
 - `SqlBridge` and `PyBridge` from Spec 02 are wrapped by `GatedPyEngine` (§6.2).
+- The `AppStore` creates the Exorcist worker as a top-level worker (`architecture-and-isolation.md` §2: zero nested workers). For `start` and `replay` it passes ports from `EngineHost.connectClient` and buffers from `EngineHost.controlBuffer` (`interruptBuffer` for Pyodide, `duckdbCancelBuffer` for DuckDB).
 
 ## 2. State (`state/appStore.ts`)
 
@@ -147,10 +148,10 @@ export function engineLabel(s: EngineStatus): string;
 
 | `EngineState` | Label | Extra |
 |---|---|---|
-| `notLoaded` | `Lazy` | — |
+| `notLoaded` | `Lazy` | `ui-craft-and-branding.md` §4: shown only before loading begins; never shown again once the engine has started loading |
 | `loading` | `Loading` or `Loading 42%` | percentage only when `progress !== null && progress.totalBytes !== null` |
 | `ready` | `Ready` | — |
-| `degraded` | `Degraded (single-threaded)` for DuckDB, `Degraded (restart on timeout)` for Python/NumPy | full `reason` in the popover and the accessible name |
+| `degraded` | `Degraded (restart on timeout)` for both engines (not cross-origin isolated) | `EngineStatus.reason` holds the unprefixed reason ("timeouts restart the engine (page is not cross-origin isolated)"). The popover and accessible name prepend the engine name, giving the steering wording "DuckDB: timeouts restart the engine (page is not cross-origin isolated)". |
 | `failed` | `Failed` | popover: reason, crash count, Retry → `EngineHost.retry` |
 
 The rendered text has the form `Grid Ready | DuckDB Lazy | Python/NumPy Lazy`. The segment colors are `ink` for Grid, `engine-sql` for DuckDB, and `engine-py` for Python/NumPy.
@@ -301,7 +302,7 @@ The flaw: `Model!B5` divides cash by net burn without handling a company that is
 
 The expected violated assertion is `runway-non-negative`. It comes first in document order, and both a negative number and `#DIV/0!` fail `gte`.
 
-- **Control (Req 10.4):** the corrected formula is `=Inputs!B2/MAX(B4,Inputs!B2/120)`, which caps runway at 120 months ("10+ years") for companies that are not burning cash. The obvious guard `=IF(B4<=0,120,Inputs!B2/B4)` does **not** work in Suture: `IF` evaluates both branches eagerly (Spec 01 Req 7.2), so at `B4 = 0` the `#DIV/0!` from the unused branch still propagates. That is exactly the strictness the steering requires.
+- **Control (Req 10.4):** the corrected formula is the standard division guard `=IF(B4<=0,120,Inputs!B2/B4)`, which caps runway at 120 months ("10+ years") for companies that are not burning cash. `IF` short-circuits (Spec 01 Req 7.6), so the division never runs when `B4 ≤ 0`. The shipped `Model!B5` stays unguarded, so the Exorcist still has a real cliff to find.
 - **Estimation:** the failing region is `Inputs!B3·Inputs!B8 ≥ Inputs!B9 + Inputs!B4·Inputs!B7`, at the corner of high MRR and margin with low opex, logos, and CAC. Req 10.3 requires it to cover at least 1% of the domain.
 
 ### 7.2 100,000-Row E-Commerce Margin Audit (batched)
@@ -339,7 +340,7 @@ FROM base
 ORDER BY i")
 ```
 
-Sheet `Calc`, cell A1 (segment margins with the flawed discount logic):
+Sheet `Margins`, cell A1 (segment margins with the flawed discount logic):
 
 ```sql
 =SQL("SELECT category,
@@ -364,8 +365,8 @@ Sheet `Cohorts` (rows 2–9, one per category, ordered Electronics, Home, Sports
 |---|---|
 | A | category literal |
 | B | segment literal: `Hardlines` (Electronics, Home, Sports, Toys), `Softlines` (Apparel, Beauty), `Consumables` (Grocery, Books) |
-| C | `=SQL("SELECT coalesce(sum(margin), 0) FROM {{Calc!A1}} WHERE category = {{A2}} AND cohort = 'stacked'")` (row-adjusted) |
-| D | `=SQL("SELECT coalesce(sum(revenue), 0) FROM {{Calc!A1}} WHERE category = {{A2}} AND cohort = 'stacked'")` (row-adjusted) |
+| C | `=SQL("SELECT coalesce(sum(margin), 0) FROM {{Margins!A1}} WHERE category = {{A2}} AND cohort = 'stacked'")` (row-adjusted) |
+| D | `=SQL("SELECT coalesce(sum(revenue), 0) FROM {{Margins!A1}} WHERE category = {{A2}} AND cohort = 'stacked'")` (row-adjusted) |
 
 Sheet `Model`, cell B2 (NumPy OLS and anomaly detection; scalar-loop batch mode):
 
@@ -397,8 +398,8 @@ Sheet `Summary`:
 
 | Cell | Label | Formula |
 |---|---|---|
-| B2 | Total margin | `=SQL("SELECT sum(margin) FROM {{Calc!A1}}")` |
-| B3 | Total revenue | `=SQL("SELECT sum(revenue) FROM {{Calc!A1}}")` |
+| B2 | Total margin | `=SQL("SELECT sum(margin) FROM {{Margins!A1}}")` |
+| B3 | Total revenue | `=SQL("SELECT sum(revenue) FROM {{Margins!A1}}")` |
 | B4 | Margin % | `=B2/B3` |
 | B5 | Stacked-cohort margin | `=SUM(Cohorts!C2:C9)` |
 | B6 | Hardlines stacked margin | `=SUMIFS(Cohorts!C2:C9,Cohorts!B2:B9,"Hardlines")` |
@@ -424,12 +425,12 @@ At the base case, the stacked discount is at most 0.25 and the Hardlines stacked
 So the expected violated assertion is `hardlines-stacked-margin-non-negative`. The estimation and control tests check both claims.
 
 - **Monotonicity holds exactly:** a higher `Params!B2` gives a weakly larger `least(promo, cap)`, and IEEE rounding is monotone. DuckDB sums with `threads = 1` in a fixed order, so `Summary!B2` is non-increasing bit for bit.
-- **Control (Req 10.4):** `Calc!A1` with `d` replaced by `least(base_discount + CASE WHEN has_promo THEN {{Params!B2}} ELSE 0 END + CASE WHEN is_loyal THEN {{Params!B3}} ELSE 0 END, {{Params!B4}})`.
+- **Control (Req 10.4):** `Margins!A1` with `d` replaced by `least(base_discount + CASE WHEN has_promo THEN {{Params!B2}} ELSE 0 END + CASE WHEN is_loyal THEN {{Params!B3}} ELSE 0 END, {{Params!B4}})`.
 - **Cross-engine probes (Spec 03 §4.3):** these run on every numeric column of `Data!A1` bound into `Model!B2` (`order_id`, `list_price`, `unit_cost`, `quantity`, `base_discount`). All values are non-negative, so summation error is about 1e-13 relative, far inside 1e-9.
 
 ### 7.3 Performance expectations for flagship 2
 
-These numbers are targets for measurement, not budgets: each batch makes 1 + 2 + 16 + 1 = 20 engine cell calls (`Calc!A1`, `Summary!B2`, `Summary!B3`, `Cohorts!C2:D9`, `Model!B2`) plus up to 2 probe calls. Flagship 2 has one `monotonicWith` assertion, so each 200-run batch evaluates up to 400 scenarios. The heaviest calls are `Calc!A1` (up to 400 group-bys over 100k rows) and `Model!B2` (up to 400 least-squares fits on 100k × 9). The Exorcist panel shows measured progress, and the CI test (§8) records duration.
+These numbers are targets for measurement, not budgets: each batch makes 1 + 2 + 16 + 1 = 20 engine cell calls (`Margins!A1`, `Summary!B2`, `Summary!B3`, `Cohorts!C2:D9`, `Model!B2`) plus up to 2 probe calls. Flagship 2 has one `monotonicWith` assertion, so each 200-run batch evaluates up to 400 scenarios. The heaviest calls are `Margins!A1` (up to 400 group-bys over 100k rows) and `Model!B2` (up to 400 least-squares fits on 100k × 9). The Exorcist panel shows measured progress, and the CI test (§8) records duration.
 
 ## 8. CI tests for flagship discovery (`packages/web/test/flagships.spec.ts`)
 

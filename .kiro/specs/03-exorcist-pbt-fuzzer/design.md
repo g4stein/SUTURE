@@ -226,7 +226,7 @@ Order of checks (the first violation wins, so results are deterministic):
 The `T1.editOrderDeterminism` checks (Req 2.6, 2.7, 5.5) run in the runner, because they require extra evaluations.
 
 **Propagation oracle.** For a formula cell `c` whose AST contains no `IFERROR`/`ISERROR` call:
-- Let `leaves` be its reference and error-literal leaves in source order (range members expanded row-major), and `firstErr` the first leaf whose value is a `CellError`.
+- Let `leaves = evaluatedLeaves(ast, at, valueOf)` (Spec 01 §6.5): the reference and error-literal leaves on the evaluated path in evaluation order, with range members expanded row-major. For `IF` this is the condition and the taken branch only. Let `firstErr` be the first leaf whose value is a `CellError`. An error in an untaken `IF` branch is therefore never required to propagate.
 - A violation exists when either:
   - `firstErr` exists and `value(c)` is not a `CellError`; or
   - `value(c)` is a `CellError` with `origin ≠ c` that is not `firstErr` (compared by `code`, `origin`, and `engine`).
@@ -364,20 +364,20 @@ export type ExorcistCommand =
   | { readonly protocol: 1; readonly kind: 'start'; readonly sessionId: number; readonly document: SutureDocument; readonly seed: number;
       readonly duckdbPort: MessagePort | null; readonly duckdbPortId: number | null;
       readonly pyodidePort: MessagePort | null; readonly pyodidePortId: number | null;
-      readonly isolation: IsolationInfo; readonly interruptBuffer: SharedArrayBuffer | null }
+      readonly isolation: IsolationInfo; readonly interruptBuffer: SharedArrayBuffer | null; readonly duckdbCancelBuffer: SharedArrayBuffer | null }
   | { readonly protocol: 1; readonly kind: 'replay'; readonly sessionId: number; readonly document: SutureDocument; readonly artifact: ReplayArtifact;
       readonly duckdbPort: MessagePort | null; readonly duckdbPortId: number | null;
       readonly pyodidePort: MessagePort | null; readonly pyodidePortId: number | null;
-      readonly isolation: IsolationInfo; readonly interruptBuffer: SharedArrayBuffer | null }
+      readonly isolation: IsolationInfo; readonly interruptBuffer: SharedArrayBuffer | null; readonly duckdbCancelBuffer: SharedArrayBuffer | null }
   | { readonly protocol: 1; readonly kind: 'stop'; readonly sessionId: number }
   | { readonly protocol: 1; readonly kind: 'enginePortReplaced'; readonly engine: EngineName; readonly port: MessagePort;
-      readonly portId: number; readonly runningRequestId: number | null; readonly reason: string };
+      readonly portId: number; readonly runningRequestId: number | null; readonly cause: 'deadline' | 'abort' | 'crash'; readonly reason: string };
 
 export type ExorcistEvent =
   | { readonly protocol: 1; readonly kind: 'progress'; readonly sessionId: number; readonly progress: ExorcistProgress }
   | { readonly protocol: 1; readonly kind: 'verdict'; readonly sessionId: number; readonly verdict: ExorcistVerdict; readonly fragment: string | null }
   | { readonly protocol: 1; readonly kind: 'replayed'; readonly sessionId: number; readonly outcome: ReplayOutcome }
-  | { readonly protocol: 1; readonly kind: 'respawnRequest'; readonly engine: EngineName; readonly portId: number; readonly requestId: number }; // → EngineHost.requestRespawn
+  | { readonly protocol: 1; readonly kind: 'respawnRequest'; readonly engine: EngineName; readonly portId: number; readonly requestId: number; readonly cause: 'deadline' | 'abort' }; // → EngineHost.requestRespawn
 
 export function isExorcistCommand(m: unknown): m is ExorcistCommand;
 export function isExorcistEvent(m: unknown): m is ExorcistEvent;
@@ -433,7 +433,7 @@ sequenceDiagram
 
 - Unit tests for each module.
 - Golden tests: an artifact from a fixed seed matches a stored canonical JSON byte for byte.
-- Differential oracle: for error-free generated formulas within the 30-function subset whose semantics agree with legacy spreadsheets (no `IF` with error branches, no errors in criteria ranges), the Suture evaluator and the dev-dependency `fast-formula-parser` return equal values (Spec 01 §6.4).
+- Differential oracle: for error-free generated formulas within the 30-function subset whose semantics agree with legacy spreadsheets (no errors in criteria or aggregation ranges), the Suture evaluator and the dev-dependency `fast-formula-parser` return equal values (Spec 01 §6.4). The inputs are error-free, so `IF`'s evaluation strategy (fast-formula-parser receives both branches already evaluated; Suture short-circuits) cannot change values, and `IF` is included.
 - A replay round-trip test: artifact → fragment → artifact gives an identical value.
 - Detection tests: each Tier 1 check is exercised by a test-only port wrapper, defined in test code and wrapping the real engine, that breaks exactly one contract. Examples: returning a raw `NaN`, returning the second upstream error instead of the first, or a result that depends on the batch index. Each wrapper must trigger exactly its invariant. Production code contains no flags for this.
 

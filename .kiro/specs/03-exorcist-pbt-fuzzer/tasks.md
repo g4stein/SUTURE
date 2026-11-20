@@ -18,7 +18,7 @@ Run core tests with `npx vitest --run` in `packages/core`. Do not use watch mode
     - Verify: `NaN` never appears; `0` vs `-0` is unequal; two IPC encodings of the same table compare equal; a one-bit float difference compares unequal.
     - _Requirements: 2.6, 2.9_
   - [ ] 2.2 Implement `checkRun`: Tier 1 order, the propagation oracle, and every Tier 2 assertion.
-    - Verify: a table test with one case per assertion kind and value type (number, `Matrix2D`, `TableRef` with and without nulls, `null`, string, error), plus oracle cases `=1/0+A1` (local error accepted) and `=A1+B1` where `B1`'s error is returned while `A1` is also an error (violation).
+    - Verify: a table test with one case per assertion kind and value type (number, `Matrix2D`, `TableRef` with and without nulls, `null`, string, error), plus oracle cases `=1/0+A1` (local error accepted), `=A1+B1` where `B1`'s error is returned while `A1` is also an error (violation), and `=IF(FALSE, A1, 1)` with `A1` an error returning `1` (no violation).
     - Also add the Spec 01 property `parseFormula(printFormula(ast)) ≡ ast` here, because it shares the AST arbitraries.
     - _Requirements: 2.2–2.5, 3.2–3.7; Spec 01 Req 5.4_
   - [ ] 2.3 Implement `crossEngineClose` and probe construction and comparison.
@@ -55,7 +55,7 @@ Run core tests with `npx vitest --run` in `packages/core`. Do not use watch mode
 
 - [ ] 5. Exorcist worker and replay entry points
   - [ ] 5.1 Implement `exorcistProtocol.ts` and `exorcist.worker.ts` with snapshot engines, `background` priority, `enginePortReplaced` handling, and progress throttling.
-    - Verify: a timeout without isolation in the Exorcist posts `respawnRequest` and receives `enginePortReplaced` with a new `portId`; a long session emits progress at most 250 ms apart; editing on the main thread during a session leaves the session result unchanged; stop cancels in-flight requests within 1,000 ms; a main-thread long-task observer records no task over 50 ms during a session.
+    - Verify: a timeout without isolation, and an isolated cooperative cancel that does not settle within 1,000 ms, each make the Exorcist post `respawnRequest` (causes `deadline` / `abort`) and receive `enginePortReplaced` with a new `portId` and matching `cause`; a long session emits progress at most 250 ms apart; editing on the main thread during a session leaves the session result unchanged; stop resolves in-flight requests as `cancelled` immediately, and the workers are free again within 1,000 ms plus respawn time; a main-thread long-task observer records no task over 50 ms during a session.
     - _Requirements: 6.5, 8.1–8.4_
   - [ ] 5.2 Implement the replay outcomes: `reproduced` (exact or direct), `notReproduced`, and `hashMismatch`.
     - Verify: an altered `fastCheckVersion` with changed generation falls back to direct replay; a modified workbook gives `hashMismatch` with both hashes.

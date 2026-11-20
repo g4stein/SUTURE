@@ -27,6 +27,7 @@ You audit and report. You do not edit source files. Use the shell only for read-
 - Topological order uses Kahn's algorithm over the dirty subgraph, with row-major address tie-breaking.
 - Generation ids are monotonic, and async results from superseded generations are discarded rather than committed.
 - Dependents of error cells are recalculated (errors are values), never skipped.
+- Main-thread recalculation yields to the host at most every `sliceMs` (8 ms in the web host) without changing evaluation order.
 
 ### Cycles
 - SCC detection (Tarjan) marks every cell in a non-trivial SCC, and every self-reference, with `#CYCLE!`.
@@ -35,6 +36,7 @@ You audit and report. You do not edit source files. Use the shell only for read-
 
 ### Error propagation
 - Only `IFERROR` and `ISERROR` intercept errors.
+- `IF` short-circuits: `cond` first (an error propagates), then only the taken branch. The untaken branch is never evaluated. Every other function evaluates all arguments eagerly.
 - `IFNA`, `ISERR`, `ISNA`, `ERROR.TYPE`, and every other function outside the allowlist resolve to `#NAME?`.
 - With several error inputs, the first error in argument order (left to right, ranges row-major) wins, with `origin` and `engine` preserved.
 - `=SQL()` / `=PY()` cells with error inputs never dispatch to a worker.

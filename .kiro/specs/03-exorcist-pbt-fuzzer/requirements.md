@@ -37,7 +37,7 @@ Glossary:
 1. THE SYSTEM SHALL check all Tier 1 invariants on every run, whether or not the user declared any assertions.
 2. IF evaluating a scenario throws, or the engine reports an internal kernel exception, THEN THE SYSTEM SHALL report a `T1.noUnhandledException` violation.
 3. IF any value in the evaluated subgraph fails `assertCanonical`, THEN THE SYSTEM SHALL report a `T1.noNonFiniteLeak` violation.
-4. IF a formula cell without `IFERROR` or `ISERROR` has an error-valued reference or error literal and its value is not a `CellError`, or its value is an upstream error that is not the first error-valued leaf in source order, THEN THE SYSTEM SHALL report a `T1.strictErrorPropagation` violation.
+4. IF a formula cell without `IFERROR` or `ISERROR` has an error-valued reference or error literal on its evaluated path (Spec 01 `evaluatedLeaves`: for `IF`, the condition and the taken branch only) and its value is not a `CellError`, or its value is an upstream error that is not the first error-valued leaf on that path, THEN THE SYSTEM SHALL report a `T1.strictErrorPropagation` violation.
 5. IF an engine cell has an error-valued input and its value is not the first such error in order of appearance, THEN THE SYSTEM SHALL report a `T1.strictErrorPropagation` violation.
 6. WHEN the run index is a multiple of 10, THE SYSTEM SHALL re-evaluate the scenario with a `seeded` tie-break, and IF any value differs bit for bit, THEN THE SYSTEM SHALL report a `T1.editOrderDeterminism` violation.
 7. WHEN the run index is a multiple of 50, THE SYSTEM SHALL apply the scenario's overrides as `setLiteral` edits, in a seeded random permutation, to a fresh engine built from the document, and IF any value differs bit for bit from the scenario evaluation, THEN THE SYSTEM SHALL report a `T1.editOrderDeterminism` violation.
@@ -115,4 +115,4 @@ Glossary:
 1. THE SYSTEM SHALL run Exorcist sessions in a dedicated Exorcist worker, with its own `WorkbookEngine` built from a snapshot of the document.
 2. THE SYSTEM SHALL send Exorcist engine requests with priority `background`.
 3. WHEN the user edits the workbook during a session, THE SYSTEM SHALL keep the running session on its snapshot, and SHALL mark its result as "stale" if the document hash changed.
-4. WHEN the user stops a session, THE SYSTEM SHALL cancel its in-flight engine requests within 1,000 ms.
+4. WHEN the user stops a session, THE SYSTEM SHALL resolve its in-flight engine requests as `cancelled` immediately and signal the workers, which settle within 1,000 ms or are escalated per Spec 02 Req 3.6.

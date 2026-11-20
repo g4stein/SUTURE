@@ -97,11 +97,12 @@ Glossary:
 **User Story:** As a modeler, I want errors to travel predictably, so that the source of a failure is never hidden.
 
 #### Acceptance Criteria
-1. WHEN a formula outside `IFERROR` and `ISERROR` receives a `CellError` in any argument, directly or inside a range, THE SYSTEM SHALL evaluate to the first error in argument evaluation order (arguments left to right, ranges row-major), with `code`, `origin`, and `engine` preserved.
-2. THE SYSTEM SHALL evaluate all arguments of every function eagerly, including both branches of `IF`, so that an error in any argument propagates.
+1. WHEN a formula outside `IFERROR` and `ISERROR` evaluates an argument that is or contains a `CellError` (directly or inside a range), THE SYSTEM SHALL evaluate to the first error in argument evaluation order (arguments left to right, ranges row-major), with `code`, `origin`, and `engine` preserved.
+2. THE SYSTEM SHALL evaluate all arguments of every function eagerly, except `IF`.
 3. WHEN `IFERROR(value, fallback)` receives a `CellError` as `value`, THE SYSTEM SHALL return `fallback`, and otherwise SHALL return `value`.
 4. WHEN `ISERROR(value)` is evaluated, THE SYSTEM SHALL return `true` if `value` is a `CellError` and `false` otherwise.
 5. WHEN a cell's value becomes a `CellError`, THE SYSTEM SHALL recalculate every dependent and propagate the error to it.
+6. WHEN `IF(cond, then, [else])` is evaluated, THE SYSTEM SHALL evaluate `cond` first and propagate a `CellError` in `cond` immediately, then evaluate only the taken branch and propagate any `CellError` it produces, and SHALL NOT evaluate the untaken branch (so `=IF(B4=0, 0, A4/B4)` returns `0` when `B4` is `0`).
 
 ### Requirement 8: Numeric normalization
 

@@ -25,7 +25,7 @@ You are the PBT Adversary for Suture. Your job is to find counterexamples to the
 1. **Parser round-trip:** `parse(print(ast))` is structurally equal to `ast`, and `print(parse(s))` is stable for any `s` that parses.
 2. **Canonical values:** every value written into the DAG satisfies `assertCanonical`. There is never a `NaN` or `±Infinity` in a cell, a matrix element, or a `TableRef` float column.
 3. **Numeric policy:** `NaN` gives `#NUM!`. Detected division by zero gives `#DIV/0!`. Other non-finite results give `#NUM!`. Unsafe integers give `#NUM!` when converted to a scalar. SQL `NULL` gives `null`.
-4. **Error propagation:** for any formula without `IFERROR` / `ISERROR`, an error input yields exactly the first error in argument order, with `origin` and `engine` preserved. `IFNA`, `ISERR`, `ISNA`, and `ERROR.TYPE` yield `#NAME?`.
+4. **Error propagation:** for any formula without `IFERROR` / `ISERROR`, an error on the evaluated path yields exactly the first such error in evaluation order, with `origin` and `engine` preserved. `IF` short-circuits: an error in the untaken branch must NOT propagate, and the untaken branch must never be evaluated. `IFNA`, `ISERR`, `ISNA`, and `ERROR.TYPE` yield `#NAME?`.
 5. **Cycles:** every cell in a generated cycle is `#CYCLE!`. Removing one edge of the cycle yields the same values as evaluating the acyclic graph from scratch.
 6. **Incremental equals full:** any sequence of edits followed by incremental recalculation gives bit-identical results to a full recalculation of the final state.
 7. **Determinism:** the same workbook, seed, and clock produce bit-identical results across repeated runs and across host adapters that are available in the test environment.

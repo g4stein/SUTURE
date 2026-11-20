@@ -15,9 +15,9 @@ flowchart LR
     EC["PortClient (exorcist)"]
     EWB["WorkbookEngine (core)"]
   end
-  subgraph ddb["DuckDB worker"]
+  subgraph ddb["DuckDB worker (top-level)"]
     DQ["job queue"]
-    ADB["AsyncDuckDB<br/>(nested duckdb-wasm worker)"]
+    ADB["duckdb-wasm synchronous bindings<br/>(eh/mvp bundle, in this worker; no sub-workers)"]
     RC["result cache (LRU 256 MiB)"]
   end
   subgraph py["Pyodide worker"]
@@ -34,15 +34,17 @@ flowchart LR
   EC <-- "client port" --> DQ
   EC <-- "client port" --> PQ
   PQ <-- "peer port (MessageChannel)" --> RC
-  HOST -. "control (Worker.postMessage)" .-> ddb
-  HOST -. control .-> py
-  HOST -. control .-> ing
+  HOST -. "creates + controls (Worker.postMessage)" .-> ddb
+  HOST -. "creates + controls" .-> py
+  HOST -. "creates + controls" .-> ing
+  UI -. "creates (Spec 03/04)" .-> exo
   DQ --> ADB
   ADB --> RC
   PQ --> ARW --> PYO
 ```
 
-- The `EngineHost` is the only owner of `Worker` objects.
+- **Zero nested workers** (`architecture-and-isolation.md` §2). Every worker is a top-level dedicated worker created on the main thread: the `EngineHost` creates the DuckDB, Pyodide, and ingest workers, and the `AppStore` creates the Exorcist worker (Spec 04 §1). No worker calls `new Worker`. DuckDB therefore runs inside the DuckDB worker through duckdb-wasm's synchronous bindings, not through `AsyncDuckDB`, which would spawn its own worker. The pthread (COI) bundle is not used, because it spawns sub-workers.
+- The `EngineHost` owns the engine and ingest `Worker` objects.
 - Each client gets its own `MessagePort` per engine worker (`attachPort` control message).
 - The DuckDB↔Pyodide peer port is created by the host and handed to both workers.
 - Table bytes for Python inputs travel DuckDB → Pyodide over the peer port and never pass through main-thread application logic.
@@ -99,6 +101,8 @@ interface RequestBase<K extends string, P> {
 
 export interface DuckDbInitPayload {
   readonly isolation: IsolationInfo;
+  /** Int32Array(2) over a SharedArrayBuffer when isolated: [0] cancel signal, [1] target ticket. */
+  readonly cancelBuffer: SharedArrayBuffer | null;
 }
 
 export interface RegisterDatasetPayload {
@@ -207,7 +211,7 @@ export type WorkerRequest = DuckDbRequest | PyRequest | IngestRequest;
 /* ---------- Results ---------- */
 
 export type WorkerResult =
-  | { readonly kind: 'duckdb.ready'; readonly bundle: 'coi' | 'eh' | 'mvp'; readonly duckdbVersion: string }
+  | { readonly kind: 'duckdb.ready'; readonly bundle: 'eh' | 'mvp'; readonly duckdbVersion: string; readonly validator: 'ast' | 'lexical' }
   | { readonly kind: 'py.ready'; readonly pyodideVersion: string; readonly numpyVersion: string; readonly interrupt: boolean }
   | { readonly kind: 'dataset'; readonly meta: DatasetMeta }
   | { readonly kind: 'ack' }
@@ -282,7 +286,10 @@ sequenceDiagram
   alt completes
     W-->>C: result {41, value}
     W-->>H: jobFinished {portId, 41}
-  else cancelled / deadline
+  else cancelled / deadline while running (isolated)
+    C->>W: control buffer: ticket + signal (Atomics), not a message
+    W-->>C: result {41, cancelled | #TIMEOUT!}
+  else cancelled while queued
     C->>W: ControlMessage cancel {41}
     W-->>C: result {41, cancelled}
   end
@@ -292,7 +299,7 @@ sequenceDiagram
 
 Each engine worker keeps a priority queue: `interactive` before `background`, FIFO within a priority.
 
-The worker never starts a job from inside an `onmessage` handler. It schedules the next job on a fresh `MessageChannel` tick, so every message already delivered (including `cancel`) is processed before the next job starts. A `cancel` for a queued job removes it and responds `cancelled`. A `cancel` for the running job triggers cooperative cancellation (§6).
+The worker never starts a job from inside an `onmessage` handler. It schedules the next job on a fresh `MessageChannel` tick, so every message already delivered (including `cancel`) is processed before the next job starts. A `cancel` message for a queued job removes it and responds `cancelled`. A running job is busy in synchronous engine calls and never sees messages. It is cancelled only through the shared control buffer, which the client writes directly (§6.2). A `cancel` message that arrives for a job that already finished is ignored.
 
 ## 4. Data path
 
@@ -315,12 +322,12 @@ The DuckDB worker keeps its cached copy separately: it posts a `slice()` of the 
 sequenceDiagram
   participant C as Client
   participant D as DuckDB worker
-  participant A as AsyncDuckDB
+  participant A as duckdb-wasm (sync bindings, same worker)
   C->>D: duckdb.query {sql, params, tables}
-  D->>A: SELECT json_serialize_sql(?) (validate §5.3)
+  D->>A: validate (§5.3): json_serialize_sql AST, or lexical guard
   D->>A: materialize bindings (§5.2)
-  D->>A: prepare(sql) → send(...params) (streaming, cancellable)
-  A-->>D: Arrow RecordBatches
+  D->>A: prepare(sql) → send(...params) (streaming)
+  A-->>D: Arrow RecordBatches, one chunk at a time (cancel flag checked between chunks)
   D->>D: tableToIPC(table,'stream') → cache[resultId]
   D->>D: core.normalizeTable → core.collapseSqlResult
   D-->>C: result {value (TableRef bytes = slice, transferred) | scalar, resultId}
@@ -560,16 +567,14 @@ JS side, per result tuple:
 
 ### 5.1 Initialization
 
-1. Pick a bundle:
-   - **Isolated:** `selectBundle(getJsDelivrBundles())` (the version is pinned by the installed `@duckdb/duckdb-wasm`); the expected result is the `coi` bundle.
-   - **Not isolated:** filter out the `coi` bundle before selection, giving `eh` or `mvp`, and report `degraded` (Req 4.2).
-2. Start the nested duckdb-wasm worker from a Blob URL wrapper: `importScripts("<bundle.mainWorker>")`. Cross-origin script loading is allowed under COEP `credentialless`.
-3. `db.instantiate(bundle.mainModule, bundle.pthreadWorker)` → `db.open({ query: { castDecimalToDouble: true, castBigIntToDouble: false } })`.
-4. Run on the connection:
+1. Pick a bundle from the jsDelivr bundles of the installed, pinned `@duckdb/duckdb-wasm` version: `eh` when WebAssembly exception handling is supported, else `mvp`. The `coi` bundle is never selected. Only `mainModule` (the `.wasm`) is fetched, because the synchronous bindings need no worker script.
+2. Instantiate duckdb-wasm's **synchronous browser bindings** (`@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.mjs`: `createDuckDB(bundles, logger, runtime)` → `instantiate()` → `open({ query: { castDecimalToDouble: true, castBigIntToDouble: false } })` → `connect()`) inside this worker. No `Worker` is constructed. Task 4.1 confirms the export names against the pinned version on Day 2.
+3. Run on the connection:
    - `SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; SET threads = 1; SET preserve_insertion_order = true;`
    - Install the macros (§5.4).
-   - Probe `SELECT json_serialize_sql('SELECT 1')`. On failure, report `failed` (Req 4.5).
-5. Respond `duckdb.ready`.
+   - Probe `SELECT json_serialize_sql('SELECT 1')`. On success, use the AST validator (§5.3.1). On any error, use the lexical guard (§5.3.2). Startup never fails because of this probe (Req 4.5).
+4. When isolated, keep `Int32Array(cancelBuffer)` for cooperative cancellation (§6.2).
+5. Respond `duckdb.ready` with `bundle` and `validator`. The engine state is `ready` when isolated and `degraded` otherwise (Req 4.2).
 
 ### 5.2 Bindings and result cache
 
@@ -579,14 +584,20 @@ JS side, per result tuple:
 - Each request then creates `CREATE OR REPLACE TEMP VIEW "__suture_b<n>" AS SELECT * FROM <source>` and drops its views after the request.
 - In a batch, shared bindings are materialized once. Per-scenario views are replaced for each scenario.
 - If any `result` binding is not cached, the worker responds `missingTables` without executing anything (Req 6.8).
-- Dataset registration (CSV/Parquet) briefly raises `SET threads` to `min(4, hardwareConcurrency)` when isolated, then restores `threads = 1`. Jobs are serialized, so no cell query ever runs with more than one thread.
+- Every job, including dataset registration, runs with `threads = 1`. The bundle is single-threaded, and jobs are serialized.
 
 ### 5.3 Query validation
 
 ```ts
 export type SqlValidation = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-export function validateSerializedSql(json: unknown, allowedTables: ReadonlySet<string>): SqlValidation;
+export type SqlValidatorKind = 'ast' | 'lexical';
+export function validateSerializedSql(json: unknown, allowedTables: ReadonlySet<string>): SqlValidation;   // §5.3.1
+export function validateLexical(sql: string, allowedTables: ReadonlySet<string>): SqlValidation;         // §5.3.2
 ```
+
+The validator is chosen once per worker instance by the init probe and reported in `duckdb.ready`. Within one engine instance, the same SQL therefore always gets the same accept/reject decision. The lexical guard is deliberately stricter than the AST validator, so a query it rejects may be accepted by the AST validator, but never the reverse for the forbidden classes listed below.
+
+#### 5.3.1 AST validator (primary, when `json_serialize_sql` exists)
 
 1. The JSON must have `error === false` and `statements.length === 1`. DuckDB serializes only `SELECT` statements, so DDL, `COPY`, `ATTACH`, `PRAGMA`, and `SET` fail to serialize and are rejected.
 2. Walk every object node.
@@ -596,6 +607,33 @@ export function validateSerializedSql(json: unknown, allowedTables: ReadonlySet<
 3. `FROM 'file.csv'` and `FROM 'https://…'` serialize as `BASE_TABLE` with a path-like name. That name is not in `allowedTables`, so they are rejected.
 
 `allowedTables` = registered dataset names ∪ this request's `__suture_b<n>` identifiers.
+
+#### 5.3.2 Lexical guard (fallback, deterministic)
+
+A single-pass tokenizer over the SQL text produces these tokens:
+- single-quoted strings (`''` escape);
+- double-quoted identifiers (`""` escape);
+- `--` line comments and `/* … */` block comments (non-nesting);
+- numbers;
+- positional parameters `$<digits>`;
+- bare identifiers and keywords, case-insensitive;
+- punctuation.
+
+Each rule below rejects with `#SQL!` and a reason naming the rule and character offset:
+1. **Unclosed constructs:** an unterminated string, quoted identifier, or block comment.
+2. **Dollar quotes:** any `$` not followed by digits (this rejects dollar-quoted strings).
+3. **Single statement:** a `;` outside literals and comments, unless it is one trailing `;` followed only by whitespace or comments.
+4. **Read-only start:** the first token must be `SELECT` or `WITH`.
+5. **Denied keywords:** any bare token among `INSERT UPDATE DELETE MERGE UPSERT CREATE DROP ALTER TRUNCATE REPLACE COPY ATTACH DETACH PRAGMA SET RESET INSTALL LOAD EXPORT IMPORT CALL CHECKPOINT VACUUM BEGIN COMMIT ROLLBACK TRANSACTION USE GRANT REVOKE PREPARE EXECUTE DEALLOCATE SUMMARIZE DESCRIBE SHOW EXPLAIN PIVOT UNPIVOT`. Identifiers with these names must be double-quoted.
+6. **Table positions:** a table position is the token after `FROM`, after any `JOIN`, or after a `,` at the same parenthesis depth inside a `FROM` clause (until `WHERE GROUP HAVING ORDER LIMIT OFFSET QUALIFY WINDOW UNION INTERSECT EXCEPT ON USING` or the closing `)`). It must be one of:
+   - `(`, a subquery, which is validated recursively by the same rules;
+   - a bare or double-quoted identifier, not followed by `.`, whose name (case-insensitive) is in `allowedTables ∪ CTE names`. The WITH list runs from the leading `WITH [RECURSIVE]` to the first `SELECT` at parenthesis depth 0. A CTE name is the identifier at depth 0 directly after `WITH`, `RECURSIVE`, or `,` inside that list, followed by an optional `( … )` column list and then `AS [NOT] [MATERIALIZED] (`. No other `ident AS (` form (for example in `WINDOW w AS (…)`) declares a table name;
+   - `range`, `generate_series`, or `unnest`, immediately followed by `(`.
+
+   String literals in a table position are rejected, which blocks `FROM 'file.csv'`.
+7. **External readers (defense in depth):** an identifier immediately followed by `(` anywhere, whose name starts with `read_`, `parquet_`, `sqlite_`, `postgres_`, `mysql_`, `iceberg_`, `delta_`, or `duckdb_`, or is `glob`, `sniff_csv`, `query`, `query_table`, or `getenv`.
+
+A test corpus (task 4.3) runs every query through both validators where the AST validator is available. It asserts that the lexical guard never accepts a query the AST validator rejects for a forbidden class: a non-SELECT statement, an unknown table, a file or URL scan, or a non-allowlisted table function.
 
 ### 5.4 Deterministic macros
 
@@ -620,9 +658,9 @@ A known-answer test checks `suture_h32` against core's lowbias32 finalizer on 10
 
 ### 5.5 Execution
 
-`conn.prepare(sql)` → `stmt.send(...params)` (a streaming reader, so `conn.cancelSent()` can interrupt between chunks) → collect the batches → `new arrow.Table(batches)` → `tableToIPC(table, 'stream')`.
+`conn.prepare(sql)` → `stmt.send(...params)` (a streaming reader) → read batches one at a time, checking the cancel flag (§6.2) before each read → `new arrow.Table(batches)` → `tableToIPC(table, 'stream')`.
 
-Errors thrown by DuckDB (parser, binder, or execution error) become `#SQL!` with DuckDB's message. A `WebAssembly.RuntimeError`, a `RangeError` from memory growth, or an error event from the nested worker is fatal (§7).
+Errors thrown by DuckDB (parser, binder, or execution error) become `#SQL!` with DuckDB's message. A `WebAssembly.RuntimeError` or a `RangeError` from memory growth is fatal (§7).
 
 ## 6. Deadlines and cancellation
 
@@ -633,16 +671,18 @@ export interface PortClientOptions {
   readonly portId: number;
   readonly engine: EngineName;
   readonly isolation: IsolationInfo;
-  readonly interrupt: Int32Array | null;  // Pyodide only, isolated only
-  readonly onTimeoutWithoutIsolation: (requestId: number) => void; // main: EngineHost.requestRespawn; Exorcist: posts 'respawnRequest' (Spec 03 §6)
+  readonly control: Int32Array | null;    // isolated only: Pyodide interrupt buffer or DuckDB cancel buffer, [0] signal, [1] ticket
+  readonly onRespawnNeeded: (requestId: number, cause: 'deadline' | 'abort') => void; // deadline when not isolated, or a cooperative cancel not settled within 1,000 ms; main: EngineHost.requestRespawn; Exorcist: posts 'respawnRequest' (Spec 03 §6)
 }
 
 export class PortClient {
   constructor(port: MessagePort, opts: PortClientOptions);
   request<R extends WorkerRequest>(kind: R['kind'], payload: R['payload'],
     opts: { readonly priority: Priority; readonly deadlineMs: number; readonly signal: AbortSignal }): Promise<WorkerResult>;
-  replacePort(port: MessagePort, crashedRunningRequestId: number | null, reason: string): void;
+  replacePort(port: MessagePort, runningRequestId: number | null, cause: RespawnCause, reason: string): void;
 }
+
+export type RespawnCause = 'deadline' | 'abort' | 'crash';
 
 export function tokenFromSignal(signal: AbortSignal): CancellationToken;
 export function signalFromToken(token: CancellationToken): AbortSignal;
@@ -663,15 +703,18 @@ stateDiagram-v2
   Queued --> Done: cancel → cancelled
   Running --> Done: result
   Running --> CoopCancel: cancel or deadline, isolated
-  CoopCancel --> Done: worker replies within 1000 ms
+  CoopCancel --> Done: worker settles within 1000 ms
   CoopCancel --> Respawn: no reply within 1000 ms
   Running --> Respawn: deadline, not isolated
-  Respawn --> Done: running job → #TIMEOUT! (deadline) or cancelled (abort)
+  Running --> Done: cancel, not isolated (client resolves cancelled at once; the late result is discarded)
+  Respawn --> Done: running job → #TIMEOUT! (cause deadline) / cancelled (cause abort)
   Done --> [*]
 ```
 
+Abort handling: on an abort (supersession or user stop), the client resolves the request as `cancelled` at once and discards any late result. It also signals the worker so the worker is freed: a queued job gets a `cancel` message, and a running job, when isolated, gets the control buffer (escalating after 1,000 ms). When not isolated, a running job cannot be signalled and runs to completion or its deadline.
+
 Cooperative cancellation:
-- **DuckDB:** the `cancel` control message → `conn.cancelSent()`.
+- **DuckDB:** the worker is busy inside synchronous calls while a query runs, so it cannot receive a `cancel` message. The client writes its job ticket (same scheme as Pyodide) to `cancel[1]`, then `Atomics.store(cancel, 0, 1)`. Before reading each result chunk, the worker checks `Atomics.load(cancel, 0)`. If the flag is set and the ticket matches the running job, the worker stops reading, cancels the pending query on the connection (reopening the connection if it can't be reused), clears the flag, and returns `#TIMEOUT!` or `cancelled`. On a ticket mismatch (the target finished before the flag was read), the worker clears `cancel[0]` and continues the current job. A single operator that never yields a chunk is handled by the 1,000 ms escalation.
 - **Pyodide:** the client writes its job ticket (`portId * 2^20 + requestId`, kept below 2^31) to `interrupt[1]`, then `Atomics.store(interrupt, 0, 2)` (SIGINT). When Python raises `KeyboardInterrupt`, the worker compares `interrupt[1]` with the running job's ticket:
   - on a match, it returns `#TIMEOUT!` or `cancelled`;
   - on a mismatch (the target finished and a new job started between the client's check and store), it clears the signal and re-runs the current job. Evaluation is deterministic, so the re-run is safe.
@@ -684,9 +727,10 @@ export interface EngineHost {
   subscribe(listener: (s: EngineStatus) => void): () => void;
   ensureStarted(engine: EngineName): Promise<void>;
   connectClient(engine: EngineName): { readonly portId: number; readonly port: MessagePort };
+  controlBuffer(engine: EngineName): SharedArrayBuffer | null; // isolated only; shared with every client (main, Exorcist)
   registerDataset(file: { readonly name: string; readonly bytes: Uint8Array;
     readonly sourceFormat: 'csv' | 'parquet' | 'xlsx'; readonly encoding: 'csv' | 'parquet' | 'arrow' }): Promise<DatasetMeta | { readonly error: string }>;
-  requestRespawn(engine: EngineName, portId: number, requestId: number): void; // timeout without isolation, from any client
+  requestRespawn(engine: EngineName, portId: number, requestId: number, cause: 'deadline' | 'abort'): void; // deadline when not isolated, or cooperative cancel not settled within 1,000 ms
   ingestXlsx(fileName: string, bytes: Uint8Array): Promise<XlsxIngestResult | { readonly error: string }>;
   retry(engine: EngineName): Promise<void>;
 }
@@ -710,15 +754,16 @@ On a crash (a `fatal` host event, `worker.onerror`, or a respawn request from a 
 2. Spawn a new worker. Replay init, then:
    - **DuckDB:** re-register every retained dataset in its original order. Macros are re-installed during init.
    - **Pyodide:** NumPy is imported during init.
-3. Create new client ports and a new peer port. Call `replacePort(newPort, runningRequestIdForThatPort, reason)` on every client: the main `PortClient` directly, and the Exorcist through its `enginePortReplaced` message (Spec 03 §6), which carries the new `portId`.
-4. `replacePort` resolves the running request as:
-   - `#TIMEOUT!` if the respawn was caused by its deadline;
-   - otherwise `#SQL!`/`#PY!` with `engine crashed: <reason>` (Req 9.2).
+3. Create new client ports and a new peer port. Call `replacePort(newPort, runningRequestIdForThatPort, cause, reason)` on every client: the main `PortClient` directly, and the Exorcist through its `enginePortReplaced` message (Spec 03 §6), which carries the new `portId`.
+4. `replacePort` resolves the running request by `cause`, the single rule used everywhere:
+   - `deadline` → `#TIMEOUT!` (Req 3.6, 3.7);
+   - `abort` → `cancelled`, which is never committed;
+   - `crash` → `#SQL!`/`#PY!` with `engine crashed: <reason>` (Req 9.2).
    It then re-sends, in original order, the requests that were sent but never started.
 5. The epoch increments, so old `ResultId`s miss and fall back via `missingTables`.
 
 Crash classification inside workers:
-- **DuckDB:** `WebAssembly.RuntimeError`, `RangeError` (memory growth), and the nested duckdb-wasm worker's `error` event are fatal.
+- **DuckDB:** `WebAssembly.RuntimeError` and `RangeError` (memory growth) are fatal.
 - **Pyodide:** every Python exception is caught inside `_run_one`, so any exception that escapes to JavaScript is fatal (this includes Pyodide fatal errors and traps). Python `MemoryError` stays an ordinary `#PY!` result (Req 9.6).
 
 ## 8. Ingest worker (`ingest.worker.ts`)
@@ -759,9 +804,9 @@ The measurements are written to `packages/web/test/cold-load.json` and compared 
 | 3 crashes in 60 s | host | pending → `#SQL!`/`#PY!` | `failed`, manual retry |
 | Malformed message or `messageerror` | guards / `messageerror` handler | `#SQL!`/`#PY!` if identifiable | survives |
 | Result evicted | DuckDB worker | none (retry with bytes) | survives |
-| `json_serialize_sql` missing | init | — | `failed` with reason |
+| `json_serialize_sql` missing | init probe | lexical guard used (`validator: 'lexical'`) | survives |
 
 ## 11. Security notes
 
-- User SQL is restricted to one `SELECT` over registered tables and allowlisted table functions. This blocks file and URL reads and DDL.
+- User SQL is restricted to one `SELECT` over registered tables and allowlisted table functions, enforced by the AST validator or, without `json_serialize_sql`, the stricter lexical guard. This blocks file and URL reads and DDL.
 - User Python runs in a worker with no DOM, but Pyodide's `js` module can still reach worker globals such as `fetch`. Worker isolation and COEP `credentialless` limit what a hostile workbook can do: no credentialed cross-origin requests and no DOM access. This is not a sandbox guarantee. The UI must warn before running `=PY()` cells from a workbook the user did not author (Spec 04 Requirement 6.5).

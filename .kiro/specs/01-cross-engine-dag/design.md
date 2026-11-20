@@ -308,7 +308,9 @@ flowchart TD
   B -- null --> N["#NAME?"]
   B -- spec --> C{arity ok?}
   C -- no --> V["#VALUE!"]
-  C -- yes --> D["evaluate ALL args eagerly<br/>(left to right)"]
+  C -- yes --> IFQ{fn is IF?}
+  IFQ -- yes --> IFC["evaluate cond; CellError → return it;<br/>coerce cond to logical (§6.3; failure → #VALUE!);<br/>evaluate ONLY the taken branch; return its value"]
+  IFQ -- no --> D["evaluate ALL args eagerly<br/>(left to right)"]
   D --> E{interceptsErrors?}
   E -- yes --> K[kernel]
   E -- no --> F{"first CellError in args?<br/>(args L→R, ranges row-major,<br/>Matrix2D positions excluded: finite by contract)"}
@@ -354,7 +356,7 @@ A `Matrix2D` passed in a `rangeOrScalar` position is treated as a range of finit
 | `COUNTIF` | `(range, criteria)` | FJ | — |
 | `COUNTIFS` | `(crit_range1, crit1, …)` | FJ | same shape rule |
 | `AVERAGEIF` | `(range, criteria, [avg_range])` | FJ | no matches → `#DIV/0!` (div set) |
-| `IF` | `(cond, then, [else=FALSE])` | N | eager: both branches evaluated; any error among cond/then/else propagates first-in-order (§6.5) |
+| `IF` | `(cond, then, [else=FALSE])` | N | short-circuit: `cond` first (error → propagates); then only the taken branch is evaluated (its error propagates); the untaken branch is never evaluated |
 | `AND` / `OR` | `(l1, …l255)` | N | no logical values found → `#VALUE!` |
 | `NOT` | `(l)` | N | — |
 | `IFERROR` | `(value, fallback)` | N | intercepts; `value` a range → `#VALUE!` |
@@ -371,13 +373,13 @@ A `Matrix2D` passed in a `rangeOrScalar` position is treated as a range of finit
 Criteria grammar (`SUMIF`, `SUMIFS`, `COUNTIF`, `COUNTIFS`, `AVERAGEIF`): optional operator `= <> < > <= >=`, then an operand. A numeric operand compares numerically against number members. Otherwise the comparison is case-insensitive string comparison, where `=` and `<>` support `*`, `?`, and `~` escapes. Error members in a criteria range propagate (strict), which deliberately differs from legacy spreadsheets.
 
 Kernel choice:
-- Native kernels exist where the steering forces semantics a library cannot give: eager error propagation (`IF`, `AND`, `OR`, `NOT`, `ISBLANK`, `ISNUMBER`), interception (`IFERROR`, `ISERROR`), and `Matrix2D` support (`INDEX`).
+- Native kernels exist where the steering forces semantics a library cannot give: short-circuit `IF`, eager error propagation (`AND`, `OR`, `NOT`, `ISBLANK`, `ISNUMBER`), interception (`IFERROR`, `ISERROR`), and `Matrix2D` support (`INDEX`).
 - They also exist where bit-identical determinism requires binary exponentiation (`POWER`, `NPV`, `PMT`, `IRR`) or decimal-correct rounding (`ROUND`).
 - Each FJ kernel has a conformance test against the table above. If a conformance test fails, the kernel is replaced with a native one in the same task.
 
 `fast-formula-parser` is used as a dev-dependency differential oracle (Spec 03 task 2.4). It is not used in production, for these reasons:
 1. It exposes no AST, which rules out allowlist enforcement before evaluation and the print round-trip.
-2. Its `IF`/`IFERROR` evaluate lazily, which contradicts the steering's eager propagation.
+2. In several places its error handling follows legacy behavior where Suture is deliberately stricter, for example errors inside criteria and aggregation ranges.
 3. Its built-ins include `IFNA`, `ISERR`, `ISNA`, and `ERROR.TYPE`, which must resolve to `#NAME?`.
 
 Keeping it out of production also keeps about 81 KB (gzip) out of the main bundle.
@@ -386,9 +388,18 @@ Keeping it out of production also keeps about 81 KB (gzip) out of the main bundl
 
 ```ts
 export function firstError(args: ReadonlyArray<EvalArg>): CellError | null;
+
+export type EvaluatedLeaf =
+  | { readonly kind: 'ref'; readonly ref: ResolvedRef }
+  | { readonly kind: 'errorLiteral'; readonly code: CellErrorCode };
+
+/** Leaves on the evaluated path, in evaluation order. For IF: cond leaves, then only the taken branch's leaves. */
+export function evaluatedLeaves(ast: FormulaAst, at: CellCoord, valueOf: (ref: ResolvedRef) => EvalArg): ReadonlyArray<EvaluatedLeaf>;
 ```
 
 Arguments are scanned left to right, and range values row-major (top-left first). The first `CellError` is returned unchanged, so `origin` and `engine` stay those of the cell where the error was created.
+
+`evaluatedLeaves` evaluates each `IF` condition with the same evaluator to choose the branch. When the condition is itself an error, the path stops after the condition's leaves. The Exorcist's propagation oracle uses it (Spec 03 §4.2).
 
 ## 7. Dependency graph and scheduling
 
@@ -522,7 +533,7 @@ sequenceDiagram
   WB->>S: generation g, dirty set
   S->>S: Tarjan → Kahn heap
   S->>S: evaluate formula cells (sync)
-  S->>SQL: evaluate(Calc!A1 request, token g)
+  S->>SQL: evaluate(Margins!A1 request, token g)
   S->>PY: evaluate(Model!B2 request, token g)
   SQL-->>S: {kind:'value', value: TableRef}
   S->>S: commit, release dependents
@@ -545,7 +556,7 @@ export interface CancellationSource {
 }
 export function createCancellationSource(): CancellationSource;
 
-export interface Clock { now(): number } // ms; injected; only used for deadlines
+export interface Clock { now(): number } // ms; injected; used for deadlines and time slicing only
 
 export interface SqlTableBinding {
   readonly identifier: string;  // "__suture_b<n>"
