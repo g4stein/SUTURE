@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "pbt-on-core-save",
+      "description": "Runs the packages/core Vitest + fast-check suite after the agent writes a core source file, and logs new counterexamples to .kiro/audit/pbt-discoveries.md. Uses PostToolUse on the built-in 'write' tool category instead of PostFileSave because Kiro Web does not run file triggers, while PostToolUse fires in Web, IDE, and CLI. A tool matcher cannot filter by file path, so the prompt applies the packages/core/src/** path guard itself and exits immediately for any other path.",
+      "enabled": true,
+      "trigger": "PostToolUse",
+      "matcher": "write",
+      "action": {
+        "type": "agent",
+        "prompt": "PATH GUARD (pbt-on-core-save): Look at the file path(s) touched by the write tool call that just completed. Continue only if at least one path, relative to the repository root, is under packages/core/src/ (glob packages/core/src/**). Otherwise, including writes under .kiro/, test files outside packages/core/src/, or anything else, do nothing for this hook and do not mention it.\n\nIf the guard matches:\n1. Run the packages/core test suite once, without watch mode: `npx vitest --run` with packages/core as the working directory. This includes the fast-check property tests (*.pbt.test.ts).\n2. If every test passes, report one line: 'pbt-on-core-save: core suite passed'.\n3. If a fast-check property fails, take the shrunk counterexample, seed, and path from the fast-check output. Read .kiro/audit/pbt-discoveries.md. If the same property and counterexample are not already logged, append one row to its table: `| YYYY-MM-DD (today) | <git rev-parse --short HEAD> | <property name> | <shrunk counterexample as inline code, plus seed/path> | <root cause if identified; otherwise 'open'> |`. Do not log failures caused by a broken test harness, or failures you cannot replay from the seed.\n4. If non-property tests fail, report them, but do not log them to pbt-discoveries.md.\n5. Report the failing property, counterexample, and suspected root cause to the user. Do not change production code to make a property pass unless the user asks."
+      }
+    }
+  ]
+}

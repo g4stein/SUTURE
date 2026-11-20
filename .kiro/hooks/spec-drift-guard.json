@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "spec-drift-guard",
+      "description": "After the agent writes a source file, routes it to its governing design spec and flags schema drift. Routing, first match wins: a path containing 'exorcist' goes to Spec 03; other paths under packages/core/src/ go to Spec 01; a path containing 'worker', 'bridge', 'duckdb', or 'pyodide' goes to Spec 02. Paths under .kiro/ and node_modules/ are excluded so spec and audit edits never trigger it. Uses PostToolUse on the built-in 'write' tool category instead of PostFileSave because Kiro Web does not run file triggers, while PostToolUse fires in Web, IDE, and CLI. A tool matcher cannot filter by file path, so the prompt applies the path guard and routing itself. A missing governing spec is reported as SPEC MISSING, never as a pass.",
+      "enabled": true,
+      "trigger": "PostToolUse",
+      "matcher": "write",
+      "action": {
+        "type": "agent",
+        "prompt": "PATH GUARD + ROUTING (spec-drift-guard): Look at the file path(s) touched by the write tool call that just completed, relative to the repository root and compared case-insensitively. Ignore any path under .kiro/ or node_modules/. For each remaining path, choose its governing spec by the FIRST matching rule:\n  (a) the path contains 'exorcist' -> .kiro/specs/03-exorcist-pbt-fuzzer/design.md\n  (b) the path starts with packages/core/src/ -> .kiro/specs/01-cross-engine-dag/design.md\n  (c) the path contains 'worker', 'bridge', 'duckdb', or 'pyodide' -> .kiro/specs/02-wasm-worker-bridge/design.md\nIf no path matches any rule, do nothing for this hook and do not mention it.\n\nFor each matched path:\n1. If the governing spec file does not exist, report prominently: '⚠ SPEC MISSING: <spec path> does not exist. <file> was changed with no design to verify against.' Never report this situation as a pass.\n2. Otherwise read the governing spec and compare the changed file against the TypeScript interfaces, unions, function signatures, state machines, and invariants it defines for that file's module:\n   - Spec 01: CellValue/CellError/CellErrorCode/TableRef/Matrix2D/ArrowField (also cross-check .kiro/steering/dag-and-type-contract.md), addressing, AST, the 30-function registry, IF short-circuit and eager-elsewhere propagation, scheduler, ports, ScenarioBatch.\n   - Spec 02: message type names and discriminants, field names, types and optionality, requestId/generation correlation, error codes on failure paths (#SQL!, #PY!, #TIMEOUT!), Arrow IPC payload shape, buffer ownership and transfer lists, zero nested workers.\n   - Spec 03: ExorcistConfig, CellAssertion, UniversalInvariantId, ReplayArtifact, ExorcistCommand/ExorcistEvent, candidate-path format, artifact encoding.\n3. Report every difference as DRIFT with: file and line, the spec and section, what the spec says, what the code does, and whether the code or the spec should change. If there are no differences, report one line: 'spec-drift-guard: <file> matches <spec path>'.\n4. Do not edit the spec or the code to resolve drift unless the user asks."
+      }
+    }
+  ]
+}
