@@ -88,7 +88,7 @@ It uses these types unchanged:
 
 #### Acceptance Criteria
 1. THE SYSTEM SHALL let the user start and stop an Exorcist session, and SHALL show the mode, the seed, live progress, and the verdict.
-2. WHEN the verdict is `violated`, THE SYSTEM SHALL show the violated assertion (the expected rule), the observed value for Tier 2 or the invariant detail for Tier 1, the failing inputs, the lineage, and actions to copy the replay link, download the replay JSON, and show the lineage in X-Ray.
+2. WHEN the verdict is `violated`, THE SYSTEM SHALL show the violated assertion (the expected rule), the observed value for Tier 2 or the invariant detail for Tier 1, the failing inputs, an **Apply Counterexample** action that applies `failingInputs` as `setLiteral` edits (lossless, Spec 01 §4) to the live workbook so the failing lineage recomputes and trips the assertion, the lineage, and actions to copy the replay link, download the replay JSON, and show the lineage in X-Ray.
 3. WHEN the page loads with a `#replay=v1.` fragment, THE SYSTEM SHALL decode it, open the built-in flagship whose hash matches `workbookHash`, or ask the user to open the matching `.suture.json`, and then run the replay.
 4. WHEN a replay finishes, THE SYSTEM SHALL show whether it was exact or direct, and highlight the lineage in X-Ray.
 5. IF the document changes during a session, THEN THE SYSTEM SHALL label the session's verdict as stale.

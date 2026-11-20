@@ -104,7 +104,7 @@ IEEE-754 `NaN` or `±Infinity` produced in JavaScript, SQL, or NumPy is normaliz
 1. `NaN` always becomes `#NUM!`.
 2. `±Infinity` becomes `#DIV/0!` only when an explicit division by zero was detected:
    - the formula engine's `/` operator (and the division-based functions in the supported subset) with a zero divisor;
-   - in Python, a `ZeroDivisionError`, or a NumPy divide-by-zero floating-point event captured with `numpy.errstate(divide='call')` and `numpy.seterrcall`.
+   - in Python, a `ZeroDivisionError`, or a NumPy divide-by-zero floating-point event captured with `numpy.errstate(divide='call')` where the platform reports one. Pyodide's WebAssembly NumPy never does, because WebAssembly exposes no floating-point exception flags (verified in Phase 2). There, a NumPy array division by zero yields `±Infinity` with no evidence and becomes `#NUM!` under rule 3.
 3. Every other `±Infinity` becomes `#NUM!`. This includes overflow, and any non-finite float returned by DuckDB, because SQL results do not report which operation produced them.
 4. If any element of a `Matrix2D`, or any value in a floating-point column of a `TableRef`, is non-finite, the whole cell becomes the error chosen by rules 1–3. Errors are never stored per element.
 5. Integers that cannot be represented exactly as a JS `number` (Arrow `Int64` / `UInt64` values or Python `int`s with magnitude above `Number.MAX_SAFE_INTEGER`) become `#NUM!` when converted to a scalar or `Matrix2D`. Inside a `TableRef` they stay as Arrow integers.

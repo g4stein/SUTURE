@@ -1,0 +1,13 @@
+packages:
+  - packages/*
+
+# License policy (steering architecture-and-isolation.md §5): MPL-2.0 is allowed only for the Pyodide runtime.
+# Vite 8 hard-depends on lightningcss (MPL-2.0), so the whole workspace (including vitest's own vite) is pinned
+# to Vite 7, and optional peers such as lightningcss are never installed implicitly.
+autoInstallPeers: false
+overrides:
+  vite: 7.3.8
+
+# esbuild (MIT) verifies its platform binary in a postinstall script.
+allowBuilds:
+  esbuild: true

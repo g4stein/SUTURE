@@ -547,6 +547,8 @@ def _to_result(v, div):
 
 `_line(e)` returns ` (line N)` from the deepest traceback frame whose filename matches the cell, or an empty string.
 
+Platform note (verified in Phase 2 against Pyodide 314.0.8 / NumPy 2.4.6): WebAssembly exposes no floating-point exception flags, so `np.errstate(divide='call')` never invokes its callback in Pyodide. A NumPy array division by zero therefore returns `±inf` with `div = False` and becomes `#NUM!`. A Python-level `ZeroDivisionError` still becomes `#DIV/0!`. The errstate hook is kept so that builds which do report the event produce `#DIV/0!`, as the steering contract requires.
+
 Batch execution:
 - **Scalar mode (default):** `_run_batch` loops over scenarios in Python, merging `shared` and per-scenario bindings into a fresh `_Inputs` for each, and collects the result tuples.
 - **Vectorized mode:** `_run_batch` calls `_run_one` once. Each per-scenario key is stacked as follows:
@@ -572,7 +574,8 @@ JS side, per result tuple:
 3. Run on the connection:
    - `SET autoinstall_known_extensions = false; SET autoload_known_extensions = false; SET threads = 1; SET preserve_insertion_order = true;`
    - Install the macros (§5.4).
-   - Probe `SELECT json_serialize_sql('SELECT 1')`. On success, use the AST validator (§5.3.1). On any error, use the lexical guard (§5.3.2). Startup never fails because of this probe (Req 4.5).
+   - Probe (verified in Phase 2): `json_serialize_sql` is **not** in the shipped `eh`/`mvp` bundles of `@duckdb/duckdb-wasm@1.32.0` (DuckDB v1.4.3); the `json` extension must be loaded. The worker first fetches `https://extensions.duckdb.org/<version>/<wasm_eh|wasm_mvp>/json.duckdb_extension.wasm` asynchronously with a 3 s `AbortController` timeout, so a slow or offline CDN never stalls boot. On success it runs `INSTALL json; LOAD json;` (served from the HTTP cache) and probes `SELECT json_serialize_sql('SELECT 1', skip_default := true, skip_null := true, skip_empty := true)`. On success it uses the AST validator (§5.3.1); on any failure or timeout it uses the lexical guard (§5.3.2). Startup never fails because of this probe (Req 4.5).
+   - `query_location` fields (uint64 `18446744073709551615` for "unknown") are stripped from the serializer's JSON text before `JSON.parse`, so no value beyond 2^53 is ever parsed.
 4. When isolated, keep `Int32Array(cancelBuffer)` for cooperative cancellation (§6.2).
 5. Respond `duckdb.ready` with `bundle` and `validator`. The engine state is `ready` when isolated and `degraded` otherwise (Req 4.2).
 
@@ -658,7 +661,9 @@ A known-answer test checks `suture_h32` against core's lowbias32 finalizer on 10
 
 ### 5.5 Execution
 
-`conn.prepare(sql)` → `stmt.send(...params)` (a streaming reader) → read batches one at a time, checking the cancel flag (§6.2) before each read → `new arrow.Table(batches)` → `tableToIPC(table, 'stream')`.
+`conn.useUnsafe((bindings, id) => …)`: `createPrepared` → `sendPrepared(params)` (schema + first chunk, as Arrow IPC bytes) → `fetchQueryResults` until empty, checking the cancel flag (§6.2) before each chunk → append the IPC end-of-stream marker → `closePrepared`. The result is DuckDB's own Arrow IPC stream, concatenated without decoding (`packages/web/src/workers/duckdbIpc.ts`).
+
+Why not `stmt.send()` + `tableToIPC(new Table(batches))`: verified in Phase 2, re-encoding DuckDB's result `Table` with the application's `apache-arrow` produced IPC that `insertArrowFromIPCStream` silently ignored (no table created) or rejected ("must have at least one column"). The raw-bytes path has no Arrow object round-trip, makes no extra copy, and the slice dataset test ran about 30× faster with it (1.5 s vs 53 s).
 
 Errors thrown by DuckDB (parser, binder, or execution error) become `#SQL!` with DuckDB's message. A `WebAssembly.RuntimeError` or a `RangeError` from memory growth is fatal (§7).
 
@@ -677,8 +682,9 @@ export interface PortClientOptions {
 
 export class PortClient {
   constructor(port: MessagePort, opts: PortClientOptions);
-  request<R extends WorkerRequest>(kind: R['kind'], payload: R['payload'],
-    opts: { readonly priority: Priority; readonly deadlineMs: number; readonly signal: AbortSignal }): Promise<WorkerResult>;
+  request<K extends RequestKind>(kind: K, payload: PayloadOf<K>,
+    opts: { readonly priority: Priority; readonly deadlineMs: number; readonly signal: AbortSignal | null;
+            readonly generation: number | null; readonly transfer?: Transferable[] }): Promise<WorkerResult>;
   replacePort(port: MessagePort, runningRequestId: number | null, cause: RespawnCause, reason: string): void;
 }
 
@@ -725,8 +731,8 @@ Cooperative cancellation:
 export interface EngineHost {
   status(engine: EngineName): EngineStatus;
   subscribe(listener: (s: EngineStatus) => void): () => void;
-  ensureStarted(engine: EngineName): Promise<void>;
-  connectClient(engine: EngineName): { readonly portId: number; readonly port: MessagePort };
+  ensureStarted(engine: EngineName): Promise<void>;          // Phase 2: `client(engine): Promise<PortClient>` (starts lazily)
+  connectClient(engine: EngineName): Promise<{ readonly portId: number; readonly port: MessagePort }>; // starts the engine first
   controlBuffer(engine: EngineName): SharedArrayBuffer | null; // isolated only; shared with every client (main, Exorcist)
   registerDataset(file: { readonly name: string; readonly bytes: Uint8Array;
     readonly sourceFormat: 'csv' | 'parquet' | 'xlsx'; readonly encoding: 'csv' | 'parquet' | 'arrow' }): Promise<DatasetMeta | { readonly error: string }>;
