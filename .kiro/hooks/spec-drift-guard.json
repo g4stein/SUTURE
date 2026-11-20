@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "spec-drift-guard",
+      "description": "After the agent writes a file whose name contains 'worker', 'protocol', or 'types', verifies the implementation against .kiro/specs/02-wasm-worker-bridge/design.md and flags schema drift. Uses PostToolUse on the built-in 'write' tool category instead of PostFileSave because Kiro Web does not run file triggers, while PostToolUse fires in Web, IDE, and CLI. A tool matcher cannot filter by file path, so the prompt applies the file-name guard itself. Paths under .kiro/ and node_modules/ are excluded to avoid self-triggering on spec and audit edits. Until the design spec exists, the hook reports SPEC MISSING instead of passing.",
+      "enabled": true,
+      "trigger": "PostToolUse",
+      "matcher": "write",
+      "action": {
+        "type": "agent",
+        "prompt": "PATH GUARD (spec-drift-guard): Look at the file path(s) touched by the write tool call that just completed. Continue only if at least one file NAME (the last path segment) contains 'worker', 'protocol', or 'types' (case-insensitive) AND the path is not under .kiro/ or node_modules/. Otherwise do nothing for this hook and do not mention it.\n\nIf the guard matches:\n1. Check whether .kiro/specs/02-wasm-worker-bridge/design.md exists.\n2. If it does NOT exist, report prominently: '⚠ SPEC MISSING: .kiro/specs/02-wasm-worker-bridge/design.md does not exist. <file> was changed with no worker-bridge design to verify against. Drift cannot be checked until Phase 1 creates the spec.' Then stop. Never report this situation as a pass.\n3. If it exists, read it and compare it with the changed file(s): message type names and discriminants, field names, field types and optionality, request/response correlation (request id, generation id), the error codes used on failure paths (#SQL!, #PY!, #TIMEOUT!), Arrow IPC payload shape and transfer-list usage, and any CellValue / CellError type definitions (cross-check those against .kiro/steering/dag-and-type-contract.md).\n4. Report every difference as DRIFT with: file and line, the spec section, what the spec says, what the code does, and whether the code or the spec should change. If there are no differences, report one line: 'spec-drift-guard: <file> matches design.md'.\n5. Do not edit the spec or the code to resolve drift unless the user asks."
+      }
+    }
+  ]
+}

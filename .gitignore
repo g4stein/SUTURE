@@ -1,0 +1,27 @@
+# Suture — VCS ignore rules
+#
+# POLICY: The `.kiro/` directory (steering, agents, hooks, specs, audit) is the
+# engineering constitution of this repository and MUST be tracked. Never add
+# `.kiro/` or any of its subdirectories to this file. The negation below makes
+# that intent explicit and defends against broader patterns added later.
+!.kiro/
+!.kiro/**
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Monorepo task cache
+.turbo/
+
+# Deployment metadata
+.vercel/
+
+# Test coverage
+coverage/
+
+# Environment files (secrets). Example templates stay tracked.
+.env*
+!.env.example
