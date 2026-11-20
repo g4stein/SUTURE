@@ -1,0 +1,100 @@
+# Tasks: Cross-Engine DAG
+
+Each task is done when its "Verify" check passes. Run tests with `npx vitest --run` in `packages/core`. Do not use watch mode.
+
+- [ ] 1. Package scaffold and purity gate
+  - [ ] 1.1 Create `packages/core` with `tsconfig.json` (`"lib": ["ES2022"]`, `"types": []`, `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) and Vitest config.
+    - Verify: `npx tsc --noEmit -p packages/core` passes on an empty `src/index.ts`, and a probe file referencing `window` fails to compile.
+    - _Requirements: 13.1_
+  - [ ] 1.2 Add an ESLint rule set banning `any`, `Math.random`, `Date.now`, `performance.now`, and imports of `node:*`, `fs`, `path`, `worker_threads`.
+    - Verify: a fixture file that violates each rule fails lint.
+    - _Requirements: 11.3, 13.1, 13.3_
+
+- [ ] 2. Value model
+  - [ ] 2.1 Implement `model/values.ts` exactly as in design §2, including `CELL_ERROR_CODES`, `isCellError`, and `makeError`.
+    - Verify: a type test asserts that `CellErrorCode` has exactly 10 members equal to the steering list.
+    - _Requirements: 8.1_
+  - [ ] 2.2 Implement `boundary/normalize.ts`, `assertCanonical.ts`, and `libraryErrors.ts` (design §8.2–8.3).
+    - Verify: unit tests cover `NaN`→`#NUM!`, `Infinity` with and without division evidence, `-0` preserved, unsafe `bigint`→`#NUM!`, a matrix with one `NaN`→whole-cell `#NUM!`, and the `#NULL!`/`#SPILL!`/unknown mappings.
+    - _Requirements: 8.1, 8.2, 8.3_
+
+- [ ] 3. Addressing
+  - [ ] 3.1 Implement `model/address.ts`: `CellKey` branding, `toCellKey`, `parseCellKey`, `columnLetters`, sheet quoting, and `compareRowMajor`.
+    - Verify: tests cover `A`, `Z`, `AA`, `XFD`, quoted sheet names with embedded quotes, out-of-range rows and columns rejected, and the round-trip `parseCellKey(toCellKey(c))`.
+    - _Requirements: 1.1, 1.4_
+  - [ ] 3.2 Implement reference resolution: relative/absolute markers, sheet defaulting, range corner normalization, named parameters, and `unresolved` results.
+    - Verify: tests cover `C10:A1`→`A1:C10`, unknown sheet→`#REF!`, unknown name→`#NAME?`, a name colliding with `A1`/`TRUE`/`SUM` rejected, and case-insensitive name lookup.
+    - _Requirements: 1.2, 1.3, 1.5, 1.6, 1.7, 1.8_
+
+- [ ] 4. Parsing
+  - [ ] 4.1 Implement `parse/dialect.ts` literal parsing and dialect detection (design §5.1).
+    - Verify: a table test covers every literal rule, `=sql(` lowercase, leading whitespace, `#SPILL!`→`#REF!` literal, and `=1+SQL("x")`→`#VALUE!`.
+    - _Requirements: 2.1–2.6_
+  - [ ] 4.2 Implement the lexer and Pratt parser with `paren` preservation and offsets in parse errors.
+    - Verify: `-2^2` evaluates to `4`, `2^3^2` parses left-associative, `1+` reports offset 2, and `=SUM(1))` reports the offset of the extra `)`.
+    - _Requirements: 5.1, 5.2, 5.3_
+  - [ ] 4.3 Implement `printFormula`.
+    - Verify: a property test from Spec 03 task 2.2 shows `parseFormula(printFormula(ast))` is structurally equal to `ast` for 1,000 generated ASTs.
+    - _Requirements: 5.4_
+  - [ ] 4.4 Implement `parse/sqlTemplate.ts` (slots, placeholders, `#SQL!` on malformed interpolation).
+    - Verify: tests cover a repeated `{{A1}}` sharing one slot, `{{ A1 }}` with whitespace, a nested `{{{`, and an empty `{{}}`.
+    - _Requirements: 3.1, 3.5, 3.8_
+  - [ ] 4.5 Implement `parse/pyInputs.ts` key extraction and the `vectorized` flag.
+    - Verify: tests cover single and double quotes, keys inside comments creating dependencies, cross-sheet keys, a named-parameter key, `=PY("x", TRUE)`, and a non-literal second argument→`#VALUE!`.
+    - _Requirements: 4.1, 4.2_
+
+- [ ] 5. Functions
+  - [ ] 5.1 Implement `functions/coerce.ts` per the design §6.3 table.
+    - Verify: a table-driven test with one case per cell of the coercion table.
+    - _Requirements: 5.7, 6.4_
+  - [ ] 5.2 Implement `functions/registry.ts` with exactly 30 entries and `lookupFunction`.
+    - Verify: a test asserts the registry key set equals the 30 names, and that `IFNA`, `ISERR`, `ISNA`, `ERROR.TYPE`, `XLOOKUP`, and `RAND` return `null`.
+    - _Requirements: 6.1, 6.2, 6.3_
+  - [ ] 5.3 Implement the native kernels: `IF`, `AND`, `OR`, `NOT`, `IFERROR`, `ISERROR`, `ISBLANK`, `ISNUMBER`, `INDEX`, `ROUND`, `POWER`, `NPV`, `PMT`, `IRR`, with `ipow`.
+    - Verify: a conformance test covers every edge-case cell in design §6.4 for these rows, including `ROUND(1.005,2)=1.01`, `POWER(0,0)`→`#NUM!`, `NPV(-1,…)`→`#DIV/0!`, and `IRR` non-convergence→`#NUM!`.
+    - _Requirements: 6.4, 7.2, 7.3, 7.4, 11.5_
+  - [ ] 5.4 Wire the formulajs kernels for the remaining 16 functions through the error-first, coercion, and normalization pipeline (design §6.2).
+    - Verify: a conformance test covers every formulajs row, including `MOD(5,0)`→`#DIV/0!`, `AVERAGE()` over empty→`#DIV/0!`, `VLOOKUP` miss→`#N/A`, `col>width`→`#REF!`, and criteria wildcards with `~` escape. Any failing row is fixed by a native kernel in this task.
+    - _Requirements: 6.4, 6.5_
+  - [ ] 5.5 Implement `firstError` and the eager-argument evaluator.
+    - Verify: `=IF(TRUE, 1, A1)` with `A1=#DIV/0!` gives `#DIV/0!` with `origin` `A1`, and `=SUM(B1:B3)` with errors in `B2` and `B3` gives `B2`'s error.
+    - _Requirements: 7.1, 7.2_
+
+- [ ] 6. Graph
+  - [ ] 6.1 Implement `graph/depGraph.ts` and `graph/rangeIndex.ts` (column buckets of 64).
+    - Verify: inserting a cell inside 10,000 registered ranges reports exactly the containing ranges, and the benchmark asserts under 1 ms per lookup on Node.
+    - _Requirements: 10.1_
+  - [ ] 6.2 Implement iterative Tarjan and shortest-cycle paths.
+    - Verify: tests cover a 1,000,000-node chain without stack overflow, `A1 -> B2 -> C1 -> A1`, a self-reference, `SUM(A1:A10)` in `A5`, an SCC with two cycles where each member's path is the shortest through it, and deterministic tie-breaks.
+    - _Requirements: 9.1, 9.2, 9.3_
+
+- [ ] 7. Scheduler
+  - [ ] 7.1 Implement ports (`CancellationToken`, `Clock`, `SqlEngine`, `PyEngine`) exactly per design §8.1.
+    - Verify: `tsc` passes, and a type test asserts the request and outcome shapes.
+    - _Requirements: 13.2_
+  - [ ] 7.2 Implement `createWorkbookEngine`, `applyEdits`, Kahn with `rowMajor`/`seeded` tie-break, sync formula evaluation, and events.
+    - Verify: a 3-sheet workbook recalculates to the expected values, and the `seeded` tie-break gives the same values as `rowMajor` for 100 seeds.
+    - _Requirements: 10.1, 10.2, 11.1, 11.4_
+  - [ ] 7.3 Implement engine dispatch, error short-circuit, SQL slot resolution, `rangeToTableRef`, and Python request building.
+    - Verify (core unit tests): a recording port captures the exact `SqlEvalRequest`/`PyEvalRequest` objects. An error input makes zero port calls, a scalar becomes `$1`, a range becomes `__suture_b0` with columns `A`,`B`, and the PY seed equals `mix32(seed, fnv1a32(key))`. These tests check request construction only and never pretend to run SQL or Python.
+    - Verify (integration, real engines): Spec 02 task 9.1 runs the same workbooks against real DuckDB-WASM and real Pyodide.
+    - _Requirements: 3.2–3.7, 4.3–4.7_
+  - [ ] 7.4 Implement generations, supersession (cancel vs re-tag), and discarding stale results.
+    - Verify: with a controllable port, edit A then edit B before A's request resolves: A's request is cancelled if dirty, otherwise re-tagged, and no stale commit occurs.
+    - _Requirements: 10.3, 10.4, 10.5, 10.6_
+  - [ ] 7.5 Implement time slicing (`sliceMs`, `yieldControl`).
+    - Verify: with an injected clock advancing 1 ms per cell and `sliceMs = 8`, a 1,000-cell recalculation yields 124 or 125 times, and its values equal the `sliceMs = 0` run.
+    - _Requirements: 10.7_
+  - [ ] 7.6 Implement cycle commit and recovery when a cycle edge is removed.
+    - Verify: create the cycle, then break it: all members and dependents recompute, and no `#CYCLE!` remains.
+    - _Requirements: 9.4, 9.5_
+
+- [ ] 8. Scenario evaluation
+  - [ ] 8.1 Implement `evaluateScenarioBatch` (subgraph, shared vs per-scenario partition, at most one call per engine cell, skipping short-circuited scenarios).
+    - Verify: 200 scenarios through 2 SQL cells and 1 PY cell give `engineCalls ≤ 3`; per-scenario values equal `setLiteral`+recalc results (including `-0` and the string `"TRUE"`); overriding a formula cell is rejected; a throwing kernel appears in `events`.
+    - _Requirements: 12.1–12.4_
+
+- [ ] 9. Determinism and full-vs-incremental
+  - [ ] 9.1 Implement `recalculateAll` and the deterministic hashing primitives (`fnv1a32`, `mix32`).
+    - Verify: known-answer tests for `mix32` and `fnv1a32`; `recalculateAll` equals incremental results after 50 random edits.
+    - _Requirements: 11.1, 11.2, 11.3_
