@@ -1,0 +1,22 @@
+{
+  "name": "@suture/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@formulajs/formulajs": "4.6.1",
+    "apache-arrow": "21.2.0",
+    "fast-check": "4.10.3",
+    "pure-rand": "8.4.2"
+  },
+  "devDependencies": {
+    "fast-formula-parser": "1.0.19",
+    "typescript": "7.0.2",
+    "vitest": "5.1.1"
+  }
+}

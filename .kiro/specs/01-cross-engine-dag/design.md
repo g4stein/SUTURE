@@ -242,6 +242,8 @@ export interface SqlTemplate {
   /** SQL text with every interpolation replaced by a slot placeholder "__suture_s<k>". */
   readonly text: string;
   readonly slots: ReadonlyArray<SqlSlot>;  // index k ↔ placeholder "__suture_s<k>", order of first appearance
+  /** Set when the template is malformed (Req 3.8); the cell evaluates to #SQL! without dispatch. */
+  readonly error?: string;
 }
 
 export interface SqlSlot {
