@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { font-family: ui-sans-serif, system-ui, sans-serif; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+@keyframes suture-pulse { from { opacity: 1 } to { opacity: .35 } }
+.suture-pulse { animation: suture-pulse 1.2s ease-in-out infinite alternate; }
+@media (prefers-reduced-motion: reduce) { .suture-pulse { animation: none; opacity: 1; } }

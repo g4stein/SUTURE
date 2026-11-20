@@ -101,7 +101,8 @@ export type Action =
   | { readonly kind: 'startExorcist' }
   | { readonly kind: 'stopExorcist' }
   | { readonly kind: 'replay'; readonly artifact: ReplayArtifact }
-  | { readonly kind: 'importFile'; readonly file: File };
+  | { readonly kind: 'importFile'; readonly file: File }
+  | { readonly kind: 'applyCounterexample'; readonly artifact: ReplayArtifact }; // applies artifact.failingInputs as setLiteral edits, then recalculates
 ```
 
 `documentHash` is recomputed with `workbookHash(document, webHasher)` (Spec 03 §5; `webHasher` implements `Hasher` with `crypto.subtle`) after every edit, debounced to 200 ms. Assertion status in the inspector (Req 3.5) is derived from the latest `finished` state: `violated` for the artifact's assertion; `held` for every assertion when the verdict is `passed`; otherwise `not reached`. While a session is `running`, a hash different from `startedHash` marks it stale (Req 7.5).

@@ -156,7 +156,7 @@ export type ReplayOutcome =
   | { readonly kind: 'hashMismatch'; readonly expected: string; readonly actual: string };
 
 export function validateConfig(doc: SutureDocument): { readonly ok: true; readonly mode: ExecutionMode } | { readonly ok: false; readonly message: string };
-export function createExorcistSession(doc: SutureDocument, deps: ExorcistDeps): Promise<ExorcistSession>;
+export function createExorcistSession(doc: SutureDocument, deps: ExorcistDeps): Promise<ExorcistSession | { readonly configError: string }>;
 ```
 
 ## 4. Architecture
@@ -313,6 +313,8 @@ flowchart TD
   S7 -- yes --> S1
   S7 -- no --> DONE
 ```
+
+Path suffix: both modes append `|<d0>,<d1>,…`, the decimal-simplification digits chosen per fuzz input (§4.6, `0` = unchanged), so replay re-applies simplification without evaluating candidates. Example: `0:0:0|0,0`.
 
 Replay of a batched path needs no evaluation until the end:
 1. Rebuild `mrng` from the seed.
