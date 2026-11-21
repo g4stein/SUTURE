@@ -4,13 +4,13 @@ import {
   type ArrowField, type CellKey, type CellValue, type DatasetMeta, type ScalarValue, type TableRef,
 } from '@suture/core';
 import { execSql, queryIPC } from './duckdbIpc.ts';
-import type { DuckDbQueryBatchPayload, RegisterDatasetPayload, ResultId, WireTableBinding, WorkerResult } from './protocol.ts';
-import { FatalEngineError, ticketOf, type Job, type JobHandler } from './workerRuntime.ts';
+import type { DuckDbQueryBatchPayload, RegisterDatasetPayload, ResultId, WireTableBinding, WorkerResult } from '../bridge/protocol.ts';
+import { FatalEngineError, ticketOf, type Job, type JobHandler } from '../bridge/job.ts';
 import { parseSerializedSql, validateLexical, validateSerializedSql, type SqlValidation, type SqlValidatorKind } from './sqlValidate.ts';
 
 /**
- * Host-agnostic DuckDB request handling (Spec 02 §5). The browser worker (`duckdb.worker.ts`) and the Node test host run
- * exactly this code; only `open` (which DuckDB-WASM bindings to instantiate) differs.
+ * Host-agnostic DuckDB request handling (Spec 02 §5). The browser worker (`packages/web` `duckdb.worker.ts`) and the Node host
+ * (`@suture/runtime/node`: tests, CLI, MCP) run exactly this code; only `open` (which DuckDB-WASM bindings to instantiate) differs.
  */
 
 // Spec 02 §5.4 — deterministic macros (lowbias32 identical to core mix32's finalizer).

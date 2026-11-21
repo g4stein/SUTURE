@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { Workbook } from 'exceljs';
 import { watchConsole } from './console.ts';
 import { csvFixture, openApp, scanDomForTrademarks, selectCell, setCell, telemetry, trackLongTasks, value, withinFrameBudget } from './app.ts';
+import { HARNESS_NO_ISOLATION_ORIGIN } from './urls.ts';
 
 /**
  * Phase 4 journeys (Spec 04 §8, Req 1–7, 11). Real engines, real files, production build behind COOP same-origin +
@@ -273,7 +274,9 @@ test('Journey 3 — Blank workbook: honest Lazy → Loading → Ready, drop a re
   await page.keyboard.press('Enter'); await expect(nb).toHaveValue('Sheet1!B3');
   await page.keyboard.press('Shift+Enter'); await expect(nb).toHaveValue('Sheet1!B2');
   await page.keyboard.press('ArrowLeft'); await expect(nb).toHaveValue('Sheet1!A2');
-  await page.keyboard.press('PageDown'); expect(Number(((await nb.inputValue()).match(/\d+$/) ?? ['0'])[0])).toBeGreaterThan(10);
+  await page.keyboard.press('PageDown');
+  // Poll: the selection lands after the page height is measured, and a one-shot read could see the old row.
+  await expect.poll(async () => Number(((await nb.inputValue()).match(/\d+$/) ?? ['0'])[0])).toBeGreaterThan(10);
   await page.keyboard.press('Control+Home'); await expect(nb).toHaveValue('Sheet1!A1');
   await selectCell(page, 'Sheet1!C5');
   await page.keyboard.press('z'); await page.keyboard.press('Enter');
@@ -387,25 +390,27 @@ test('Journey 4 — real .xlsx with formulas: evaluate, trust gate for imported 
 });
 
 /**
- * KNOWN GAP (Spec 04 task 1.2, kept as an executable record — not loosened): this fails today with one ~111 ms task.
- * Measured in Node on the same 20,000-formula fan-out: core `applyEdits` rebuilds the whole dependency graph (~25 ms)
- * and `recalculate` spends ~50 ms (dirty set, sort, cycle detection, in-degrees) before its first 8 ms slice; both run
- * synchronously in the edit's task. The fix belongs in the Spec 01 scheduler (incremental graph + sliced preamble).
- * Remove `fixme` when that lands.
+ * Spec 04 task 1.2 / Req 1.5 with Spec 01 §7.3: the incremental graph and the sliced recalculation preamble keep every task
+ * of a 20,000-formula recalculation under the unchanged 50 ms limit. The name box also resolves a defined name (task 3.1).
  */
-test.fixme('Req 1.5 — editing the input of 20,000 formulas recalculates without a main-thread task over 50 ms', async ({ page }) => {
+test('Req 1.5 — editing the input of 20,000 formulas recalculates without a main-thread task over 50 ms', async ({ page }) => {
   const errors = watchConsole(page);
   const cells = [{ key: 'Load!A1', raw: '1' }, ...Array.from({ length: 20_000 }, (_, i) => ({ key: `Load!B${i + 2}`, raw: `=$A$1*${i + 2}` }))];
   const doc = {
     format: 'suture.workbook', version: 1, title: '20,000 formulas',
-    workbook: { sheets: [{ name: 'Load', cells }], names: [], datasets: [], seed: 1 },
+    workbook: { sheets: [{ name: 'Load', cells }], names: [{ name: 'Driver', target: { kind: 'cell', coord: { sheet: 'Load', row: 0, col: 0 } } }], datasets: [], seed: 1 },
     exorcist: { numRuns: 1000, batchSize: 200, maxBatches: 10, maxShrinkRounds: 64, inputs: [], assertions: [] },
   };
   await openApp(page, '/?workbook=blank');
   await page.getByTestId('import-file').setInputFiles({ name: 'load.suture.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(doc)) });
   await expect(value(page, 'Load!B21')).toHaveText('21', { timeout: 120_000 });
   const before = await telemetry(page, 'tm-warm-eval-ms');
-  await selectCell(page, 'Load!A1');
+  // Spec 04 Req 2.2 / task 3.1: a defined name in the name box selects its target cell.
+  await selectCell(page, 'Load!B9');
+  await page.getByTestId('name-box').fill('driver');
+  await page.getByTestId('name-box').press('Enter');
+  await expect(page.getByTestId('name-box')).toHaveValue('Load!A1');
+  await expect(page.getByTestId('cell-Load!A1')).toHaveAttribute('aria-selected', 'true');
   await withinFrameBudget(page, 'edit A1 → 20,000 dependent formulas', async () => {
     await page.keyboard.press('5');
     await page.keyboard.press('Enter');
@@ -444,4 +449,34 @@ test('Journey 5 — 390×844: no horizontal overflow, Exorcise stays reachable, 
   await openApp(broken, '/#replay=v1.not-a-real-artifact');
   await expect(broken.getByTestId('exorcist-status')).toHaveText(/^replay link: /);
   expect(brokenErrors, brokenErrors.join('\n')).toEqual([]);
+});
+
+/**
+ * Spec 04 Req 4.1 / 4.4, task 4.1: the app page served WITHOUT COOP/COEP (the e2e build's unisolated origin) shows the
+ * honest degraded label for each engine once it loads (Python stays Lazy until the first =PY()), the full reason in the
+ * pill's accessible name, and the crossOriginIsolated-based note in the popover, while both engines still evaluate.
+ */
+test('Req 4.1 — unisolated app page: Lazy → Degraded (restart on timeout) for DuckDB and Python, plain-words reason, both engines still evaluate', async ({ page }) => {
+  const errors = watchConsole(page);
+  await page.goto(`${HARNESS_NO_ISOLATION_ORIGIN}/?workbook=blank`);
+  await expect(page.getByTestId('pill-grid')).toHaveText('Grid: Ready');
+  await expect(page.getByTestId('pill-duckdb')).toHaveText('DuckDB: Lazy');
+  await expect(page.getByTestId('pill-pyodide')).toHaveText('Python/NumPy: Lazy');
+  await setCell(page, 'Sheet1!A1', '=SQL("SELECT 6 * 7 AS answer")');
+  await expect(value(page, 'Sheet1!A1')).toHaveText('42', { timeout: 120_000 });
+  await expect(page.getByTestId('pill-duckdb')).toHaveAttribute('data-state', 'degraded');
+  await expect(page.getByTestId('pill-duckdb')).toHaveText('DuckDB: Degraded (restart on timeout)');
+  await expect(page.getByTestId('pill-pyodide')).toHaveText('Python/NumPy: Lazy');
+  await setCell(page, 'Sheet1!A2', '=PY("6 * 7")');
+  await expect(value(page, 'Sheet1!A2')).toHaveText('42', { timeout: 120_000 });
+  await expect(page.getByTestId('pill-pyodide')).toHaveAttribute('data-state', 'degraded');
+  await expect(page.getByTestId('pill-pyodide')).toHaveText('Python/NumPy: Degraded (restart on timeout)');
+  await expect(page.getByTestId('readiness-pill')).toHaveAttribute('aria-label', /DuckDB: Degraded \(restart on timeout\)\. DuckDB: timeouts restart the engine \(page is not cross-origin isolated\)/);
+  await expect(page.getByTestId('readiness-pill')).toHaveAttribute('aria-label', /Python\/NumPy: Degraded \(restart on timeout\)\. Python\/NumPy: timeouts restart the engine \(page is not cross-origin isolated\)/);
+  await page.getByTestId('readiness-pill').click();
+  await expect(page.getByTestId('tm-coi')).toHaveText('false');
+  await expect(page.getByTestId('tm-degraded-note')).toContainText('not cross-origin isolated');
+  await expect(page.getByTestId('telemetry-popover')).toContainText('DuckDB: timeouts restart the engine (page is not cross-origin isolated)');
+  await page.keyboard.press('Escape');
+  expect(errors, errors.join('\n')).toEqual([]);
 });

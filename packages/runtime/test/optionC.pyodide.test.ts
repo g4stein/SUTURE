@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Bool, Float64, Int32, Int64, Table, Utf8, tableToIPC, vectorFromArray } from 'apache-arrow';
 import { loadPyodide, type PyodideAPI } from 'pyodide';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { columnSpecs } from '../src/workers/arrowColumns.ts';
+import { columnSpecs } from '../src/engines/arrowColumns.ts';
 
 /** Real Pyodide + NumPy in Node, running the exact bridge module the Pyodide worker runs (Spec 02 §4.3 Option C). */
 let py: PyodideAPI;
@@ -11,7 +11,7 @@ type Proxy = { get(i: number): unknown; length: number; toJs(): unknown; destroy
 beforeAll(async () => {
   py = await loadPyodide({ stdout: () => undefined, stderr: () => undefined });
   await py.loadPackage(['numpy'], { messageCallback: () => undefined });
-  py.runPython(readFileSync(new URL('../src/workers/python/suture_bridge.py', import.meta.url), 'utf8'));
+  py.runPython(readFileSync(new URL('../src/engines/python/suture_bridge.py', import.meta.url), 'utf8'));
   const loaded = Object.keys(py.loadedPackages);
   console.info(`[option-c] Pyodide ${py.version}; loaded packages: ${loaded.join(', ')}`);
 }, 240_000);

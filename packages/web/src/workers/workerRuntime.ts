@@ -1,7 +1,7 @@
 import {
-  isControlMessage, isWorkerRequest, PROTOCOL_VERSION, transferListOf,
-  type HostEvent, type WorkerRequest, type WorkerResponse, type WorkerResult,
-} from './protocol.ts';
+  FatalEngineError, isControlMessage, isWorkerRequest, PROTOCOL_VERSION, transferListOf,
+  type HostEvent, type Job, type JobHandler, type WorkerResponse,
+} from '@suture/runtime/bridge';
 
 /** Minimal dedicated-worker scope (the web package compiles against the DOM lib). */
 export interface WorkerScope {
@@ -11,23 +11,6 @@ export interface WorkerScope {
 }
 
 export const scope = globalThis as unknown as WorkerScope;
-
-export interface Job {
-  readonly portId: number;
-  readonly port: MessagePort | null; // null = the worker's own control channel
-  readonly request: WorkerRequest;
-  cancelled: boolean;
-}
-
-export type JobHandler = (job: Job, progress: (phase: 'download' | 'compile' | 'packages' | 'bootstrap', loaded: number, total: number | null) => void) => Promise<WorkerResult>;
-
-/** Thrown by handlers for unrecoverable engine states (WASM traps, Pyodide fatal errors). */
-export class FatalEngineError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'FatalEngineError';
-  }
-}
 
 /**
  * Spec 02 §3.2: priority queue (interactive before background, FIFO within a priority). A job never starts inside an
@@ -113,9 +96,4 @@ export function startWorkerRuntime(handle: JobHandler, onPeer?: (port: MessagePo
     const reason = (e as PromiseRejectionEvent).reason;
     host({ protocol: PROTOCOL_VERSION, kind: 'fatal', reason: reason instanceof Error ? reason.message : String(reason) });
   });
-}
-
-/** Ticket shared by clients and workers for control-buffer cancellation (Spec 02 §6.2). */
-export function ticketOf(portId: number, requestId: number): number {
-  return ((portId * 2 ** 20) + (requestId % 2 ** 20)) % 2 ** 31;
 }

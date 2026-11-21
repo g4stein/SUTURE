@@ -3,7 +3,7 @@ import {
   type CancellationToken, type CellKey, type CellValue, type EngineBatchOutcome, type EngineOutcome, type PyBatchEvalRequest,
   type PyBinding, type PyEngine, type PyEvalRequest, type SqlBatchEvalRequest, type SqlEngine, type SqlEvalRequest, type SqlTableBinding, type TableRef,
 } from '@suture/core';
-import { DeadlineExceeded, EngineCrashed, signalFromToken, type EngineClient } from './portClient.ts';
+import { DeadlineExceeded, EngineCrashed, signalFromToken, type EngineClient } from './client.ts';
 import { owned, type Priority, type ResultId, type WirePyBinding, type WireTableBinding, type WorkerResult } from './protocol.ts';
 
 export const DEADLINE_SINGLE_MS = 10_000;

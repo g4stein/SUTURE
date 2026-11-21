@@ -1,10 +1,8 @@
-import type { CancellationToken } from '@suture/core';
 import {
-  isWorkerResponse, PROTOCOL_VERSION,
-  type ControlMessage, type EngineName, type PayloadOf, type Priority, type RequestKind, type WorkerRequest, type WorkerResult,
-} from './protocol.ts';
-import { isIsolated, type IsolationInfo } from './isolation.ts';
-import { ticketOf } from './workerRuntime.ts';
+  DeadlineExceeded, EngineCrashed, isIsolated, isWorkerResponse, PROTOCOL_VERSION, ticketOf,
+  type ControlMessage, type EngineClient, type EngineName, type IsolationInfo, type PayloadOf, type RequestKind, type RequestOptions,
+  type WorkerRequest, type WorkerResult,
+} from '@suture/runtime/bridge';
 
 export type RespawnCause = 'deadline' | 'abort' | 'crash';
 
@@ -17,21 +15,6 @@ export interface PortClientOptions {
   /** deadline when not isolated, or a cooperative cancel not settled within 1,000 ms */
   readonly onRespawnNeeded: (requestId: number, cause: 'deadline' | 'abort') => void;
   readonly onProgress?: (loadedBytes: number, totalBytes: number | null) => void;
-}
-
-/** Thrown into a pending request when its deadline passes; bridges turn it into #TIMEOUT!. */
-export class DeadlineExceeded extends Error {
-  constructor(readonly afterMs: number) {
-    super(`deadline of ${afterMs} ms exceeded`);
-    this.name = 'DeadlineExceeded';
-  }
-}
-
-export class EngineCrashed extends Error {
-  constructor(readonly reason: string) {
-    super(`engine crashed: ${reason}`);
-    this.name = 'EngineCrashed';
-  }
 }
 
 const ESCALATE_MS = 1000;
@@ -58,19 +41,7 @@ interface Pending {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-export interface RequestOptions {
-  readonly priority: Priority;
-  readonly deadlineMs: number;
-  readonly signal: AbortSignal | null;
-  readonly generation: number | null;
-  readonly transfer?: Transferable[];
-}
-
-/** What the core-port bridges need from an engine: PortClient (browser workers) or a direct in-process client (Node hosts). */
-export interface EngineClient {
-  request<K extends RequestKind>(kind: K, payload: PayloadOf<K>, opts: RequestOptions): Promise<WorkerResult>;
-}
-
+/** Browser transport for the shared `EngineClient` contract: one MessagePort to a dedicated engine worker. */
 export class PortClient implements EngineClient {
   private port: MessagePort;
   private nextId = 1;
@@ -242,27 +213,4 @@ export class PortClient implements EngineClient {
       p.reject(new EngineCrashed(reason));
     }
   }
-}
-
-export function signalFromToken(token: CancellationToken): AbortSignal {
-  const ctl = new AbortController();
-  if (token.cancelled) ctl.abort();
-  else token.onCancel(() => ctl.abort());
-  return ctl.signal;
-}
-
-export function tokenFromSignal(signal: AbortSignal): CancellationToken {
-  return {
-    get cancelled() {
-      return signal.aborted;
-    },
-    onCancel(listener) {
-      if (signal.aborted) {
-        listener();
-        return () => undefined;
-      }
-      signal.addEventListener('abort', listener, { once: true });
-      return () => signal.removeEventListener('abort', listener);
-    },
-  };
 }

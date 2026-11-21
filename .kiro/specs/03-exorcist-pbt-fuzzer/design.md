@@ -4,7 +4,7 @@ Implements `requirements.md` in this folder. Core logic lives in `packages/core/
 
 Imported unchanged:
 - from Spec 01 (`@suture/core`): `CellKey`, `CellValue`, `CellError`, `CellErrorCode`, `EngineId`, `ScalarValue`, `TableRef`, `Matrix2D`, `WorkbookDefinition`, `WorkbookEngine`, `EngineDeps`, `ScenarioOverrides`, `ScenarioBatch`, `ScenarioBatchResult`, `TieBreak`, `CancellationToken`, `createWorkbookEngine`, `assertCanonical`, `InvariantViolation`, `mix32`, `fnv1a32`;
-- from Spec 02, in the web host only (`packages/web`; `packages/core` never imports them): `EngineName` (`workers/protocol.ts`), `IsolationInfo` (`workers/isolation.ts`), `PortClient` (`workers/portClient.ts`), `EngineHost` (`workers/engineHost.ts`). Also from Spec 01: `Edit`, `EngineEvent`, `SqlBatchEvalRequest`, `PyBatchEvalRequest`.
+- from Spec 02, in the hosts only (`packages/core` never imports them): `EngineName` and `IsolationInfo` (`@suture/runtime/bridge`, since Phase 5), and in the web host `PortClient` (`packages/web/src/workers/portClient.ts`) and `EngineHost` (`workers/engineHost.ts`). Also from Spec 01: `Edit`, `EngineEvent`, `SqlBatchEvalRequest`, `PyBatchEvalRequest`.
 
 New dependency: `pure-rand` (MIT, by the author of fast-check, already a transitive dependency of fast-check). It is added as a direct dependency of `packages/core` because `fc.Random` requires a `RandomGenerator`. The license check is recorded in the PR that adds it, as `.kiro/steering/architecture-and-isolation.md` §5 requires.
 

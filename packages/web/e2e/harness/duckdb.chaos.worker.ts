@@ -1,5 +1,6 @@
 import { createBrowserDuckDb, servePeer } from '../../src/workers/duckdbBrowser.ts';
-import { startWorkerRuntime, type JobHandler } from '../../src/workers/workerRuntime.ts';
+import type { JobHandler } from '@suture/runtime/bridge';
+import { startWorkerRuntime } from '../../src/workers/workerRuntime.ts';
 
 /**
  * E2E-only fault injector around the REAL DuckDB worker (built by vite.e2e.config.ts, never shipped in dist/).

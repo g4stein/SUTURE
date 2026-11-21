@@ -1,25 +1,17 @@
-import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import * as fc from 'fast-check';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   createExorcistSession, createWorkbookEngine, decodeScalar, fromReplayFragment, NEVER_CANCELLED, toReplayFragment,
-  type CellKey, type CellValue, type Compressor, type ExorcistDeps, type ExorcistSession, type FuzzDomain, type SutureDocument,
+  type CellKey, type CellValue, type ExorcistDeps, type ExorcistSession, type FuzzDomain, type SutureDocument,
 } from '@suture/core';
-import { nodeEngines, nodeSha256, type NodeEngines } from './hosts/nodeEngines.ts';
-import { SAAS_NOTES, saasRunwayDocument } from '../src/workbooks/saasRunway.ts';
-import { ECOMMERCE_NOTES, ecommerceMarginDocument } from '../src/workbooks/ecommerceMargin.ts';
-import type { WorkbookNotes } from '../src/workbooks/build.ts';
+import { NODE_VERSIONS, nodeClock, nodeCompressor, nodeEngines, nodeHasher, type NodeEngines } from '../src/node/index.ts';
+import { ECOMMERCE_NOTES, ecommerceMarginDocument, SAAS_NOTES, saasRunwayDocument, type WorkbookNotes } from '../src/workbooks/index.ts';
 
 /**
  * Spec 04 Req 10 — genuine discovery against the REAL engines (DuckDB-WASM + Pyodide/NumPy, same handlers as the browser
  * workers). The tests contain no input values, counterexamples, or fixed seeds for discovery: they assert only assertion
  * ids, verdict kinds, and replay outcomes. The estimation and control tests use fixed sampling seeds (Spec 04 §8).
  */
-const zlib: Compressor = {
-  deflateRaw: (b) => Promise.resolve(new Uint8Array(deflateRawSync(b))),
-  inflateRaw: (b) => Promise.resolve(new Uint8Array(inflateRawSync(b))),
-};
-
 let engines: NodeEngines;
 beforeAll(async () => {
   engines = await nodeEngines();
@@ -28,10 +20,10 @@ beforeAll(async () => {
 
 function deps(): ExorcistDeps {
   return {
-    engine: { ...engines.deps, clock: { now: () => performance.timeOrigin + performance.now() } },
-    hasher: { sha256: nodeSha256 },
-    compressor: zlib,
-    versions: { suture: '0.2.0', fastCheck: '4.10.3' },
+    engine: { ...engines.deps, clock: nodeClock },
+    hasher: nodeHasher,
+    compressor: nodeCompressor,
+    versions: NODE_VERSIONS,
   };
 }
 
@@ -121,9 +113,9 @@ for (const f of FLAGSHIPS) {
       if (va.tier === 2) expect(va.assertion.id).toBe(f.notes.expectedAssertion);
       expect(a.mode).toBe('batched');
 
-      const fragment = await toReplayFragment(a, zlib);
+      const fragment = await toReplayFragment(a, nodeCompressor);
       expect(typeof fragment).toBe('string');
-      const decoded = typeof fragment === 'string' ? await fromReplayFragment(`#${fragment}`, zlib) : { error: 'too long' };
+      const decoded = typeof fragment === 'string' ? await fromReplayFragment(`#${fragment}`, nodeCompressor) : { error: 'too long' };
       expect(decoded).toEqual(a);
       const t1 = performance.now();
       const replay = await (await session(doc)).replay(a, NEVER_CANCELLED);

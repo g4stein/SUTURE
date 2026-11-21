@@ -3,14 +3,11 @@ import {
   type CancellationSource, type ExorcistDeps, type PyEngine, type SqlEngine,
 } from '@suture/core';
 import { isExorcistCommand, type ExorcistCommand, type ExorcistEvent } from './exorcistProtocol.ts';
-import { PyBridge, SqlBridge } from './bridges.ts';
+import { FAST_CHECK_VERSION, PyBridge, SqlBridge, SUTURE_VERSION, type EngineName } from '@suture/runtime/bridge';
 import { PortClient } from './portClient.ts';
 import { scope } from './workerRuntime.ts';
 import { webClock, webCompressor, webHasher, yieldControl } from '../engines/hostAdapters.ts';
-import type { EngineName } from './protocol.ts';
 
-const FAST_CHECK_VERSION = '4.10.3';
-const SUTURE_VERSION = '0.1.0';
 
 const clients: Record<EngineName, PortClient | null> = { duckdb: null, pyodide: null };
 const sessions = new Map<number, CancellationSource>();

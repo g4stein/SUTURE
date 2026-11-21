@@ -1,6 +1,6 @@
 # Suture
 
-Suture is a zero-backend spreadsheet engine that runs entirely in your browser. One dependency graph connects three engines:
+Suture is a zero-backend spreadsheet engine that runs entirely on your machine: in the browser, or headless as the `suture` CLI and a local MCP server for Kiro. One dependency graph connects three engines:
 
 - `=SQL("…")` cells run in **DuckDB-WASM**;
 - `=PY("…")` cells run in **Pyodide with NumPy**;
@@ -12,7 +12,7 @@ The **Exorcist** is a property-based fuzzer built on [fast-check](https://fast-c
 
 No data leaves your machine. There is no application server, no remote execution, and no telemetry endpoint.
 
-> **Status:** Phase 4 has landed: the production UI. It has a virtualized multi-sheet grid, the X-Ray lineage overlay with a crimson fracture view, and the Exorcist Audit Studio. Open items are tracked in `.kiro/specs/04-xray-ui-and-workbooks/tasks.md`; the main one is a 111 ms main-thread task when one edit dirties 20,000 formulas, which needs a scheduler change in core.
+> **Status:** Phase 5 has landed: the headless toolchain. The `suture` CLI and the `suture-mcp` server run the same real-engine code as the web app, and Kiro can audit and patch models through MCP. The scheduler now slices its whole recalculation, so editing the input of 20,000 formulas keeps every main-thread task under 50 ms, and the Playwright suite runs 16 tests with none skipped. Open items are tracked in `.kiro/specs/*/tasks.md`.
 
 ## Using Suture
 
@@ -23,6 +23,42 @@ No data leaves your machine. There is no application server, no remote execution
 - **Add your own checks** in *Assertions & Domains*. You can use all 9 assertion kinds (`≥ ≤ > <`, `between`, `not error`, `finite`, `not null`, `monotonic with`), with constant or cell operands, and float or integer fuzz domains on input cells.
 - **Bring your own data**: drop `.csv`, `.parquet`, `.xlsx`, `.suture.json`, or a replay `.json` anywhere on the page. Files are parsed locally and never uploaded. Python that arrives in an imported file stays blocked behind a trust banner until you trust it.
 - Screens narrower than 768 px get a stacked layout with the studio as a bottom sheet.
+
+## Headless: the `suture` CLI
+
+The CLI evaluates and audits a workbook from a terminal or a CI job. It uses the real DuckDB-WASM and Pyodide engines in-process.
+
+```bash
+pnpm install && pnpm build
+node packages/cli/dist/suture.mjs eval flagship:1                      # every cell's dialect and value
+node packages/cli/dist/suture.mjs audit flagship:1 --out-replay r.json # Exorcist: verdict, shrunk inputs, failing lineage
+node packages/cli/dist/suture.mjs replay r.json                         # exact reproduction check
+node packages/cli/dist/suture.mjs inspect flagship:2 --cell Margins!B5  # dialect, AST, precedents, dependents, chain
+```
+
+- `<workbook>` is `flagship:1`, `flagship:2`, or a `.suture.json` file. Add `--json` for machine-readable output. It is identical for the same seed, except a `meta` block with timings and the replay artifact's `createdAt`.
+- `--seed <n>` makes an audit reproducible; without it the seed is random and printed.
+- Exit codes are CI-friendly. `audit` exits `0` when every invariant and assertion held, `1` on a violation, and `2` on a configuration, input, or runtime error. `replay` exits `0` only for an exact reproduction. `eval` and `inspect` exit `0`, or `2` on bad input.
+- **Python trust.** Under Node, Python can reach the file system and the network through Pyodide's JavaScript bridge. So a `.suture.json` file's `=PY()` cells run only with `--trust-python`; otherwise they evaluate to `#PY!` and Pyodide never starts. The built-in flagships always run.
+- **No interrupts.** Engines run in-process, so a cell whose code never returns blocks the command.
+
+## Suture in Kiro: the MCP server
+
+`packages/mcp` is a local Model Context Protocol server over stdio. The workspace config [`.kiro/settings/mcp.json`](.kiro/settings/mcp.json) starts it with `node packages/mcp/dist/suture-mcp.mjs`. Run `pnpm install && pnpm build` once and open the repository in Kiro; Kiro CLI should be started from the repository root. It serves both MCP protocol eras: the 2025-11-25 `initialize` handshake, and the stateless 2026-07-28 revision with `server/discover`.
+
+| Tool | What it does |
+|---|---|
+| `suture_list_workbooks` | Lists `flagship:1`, `flagship:2`, and every `.suture.json` in the workspace, with sheets, inputs, assertions, and Python status. |
+| `suture_inspect_lineage` | Returns a cell's dialect, formula, upstream precedents, downstream dependents, and full topological chain. No engine runs. |
+| `suture_run_audit` | Runs the Exorcist and returns the Tier 1 / Tier 2 verdicts, the shrunk `failingInputs`, the `lineagePath`, and the replay artifact. |
+| `suture_verify_patch` | Applies one or more cell patches in memory, replays the original counterexample, runs a fresh audit with the same seed, and compares base cases. Returns `{ ok, seed, counterexampleFixed, freshAuditPassed, regressions, baseValueDiffs }`. Never writes to disk. |
+
+A typical loop on Flagship 1:
+1. `suture_run_audit` finds `runway-non-negative` violated: runway goes negative when projected burn is negative.
+2. `suture_verify_patch` with `{ "Model!B5": "=IF(B4<=0,120,Inputs!B2/B4)" }` and the returned artifact reports `ok: true`, with zero regressions and no base-case changes.
+3. You edit the workbook.
+
+Only the two static tools are auto-approved. The audit tools evaluate the workbook, and with `trustPython: true` its Python, so Kiro asks first. Workbook paths must stay inside the workspace.
 
 ## Flagship workbooks
 
@@ -39,27 +75,33 @@ Fresh-seed discovery times in Chromium on the Phase 3 build were 2.5–3.6 s for
 
 ```
 packages/
-  core/   ECMAScript only (no DOM, no Node built-ins)
-          parser + printer, 30-function registry, dependency graph, time-sliced scheduler,
-          CellValue contract, engine ports, Exorcist (search → shrink → simplify → confirm → lineage)
-  web/    Vite + React + Tailwind
-          AppStore (external store) · virtualized grid · formula bar · X-Ray overlay
-          Exorcist Audit Studio · readiness pill · drop overlay
-          EngineHost + PortClient (main thread)
-          workers: DuckDB-WASM · Pyodide + NumPy · ingest (exceljs) · Exorcist
+  core/     ECMAScript only (no DOM, no Node built-ins)
+            parser + printer, 30-function registry, incremental dependency graph, time-sliced scheduler,
+            CellValue contract, engine ports, Exorcist (search → shrink → simplify → confirm → lineage)
+  runtime/  the one copy of the engine code every host runs (subpath entries, no root entry)
+            engines: DuckDB-WASM · Pyodide + NumPy · ingest handlers   bridge: protocol, clients, trust gate
+            workbooks: flagships, validation   headless: eval · audit · replay · inspect · verify-patch
+            node: in-process engine host
+  web/      Vite + React + Tailwind
+            AppStore (external store) · virtualized grid · formula bar · X-Ray overlay
+            Exorcist Audit Studio · readiness pill · drop overlay
+            EngineHost + PortClient (main thread)
+            workers: DuckDB-WASM · Pyodide + NumPy · ingest (exceljs) · Exorcist
+  cli/      suture (one Node ESM bundle)
+  mcp/      suture-mcp (stdio MCP server)
 ```
 
 - **One DAG, three dialects.** `packages/core` parses each cell, builds one dependency graph, and schedules evaluation. SQL and Python cells go through engine ports (`SqlEngine`, `PyEngine`), and their results are normalized at the boundary into one `CellValue` contract: numbers, strings, booleans, errors, `TableRef` (Arrow IPC), and `Matrix2D`.
 - **Top-level workers only.** The main thread creates every worker. DuckDB uses its synchronous bindings inside its own worker, so no worker spawns another. Table bytes for Python inputs move DuckDB → Pyodide over a peer `MessagePort` and are copied once into NumPy memory.
-- **Host-agnostic engine handlers.** The same DuckDB, Pyodide, and ingest handler code runs in the browser workers and in the Node test host. Tests therefore exercise real engines, never mocks.
+- **One engine code path.** The same DuckDB, Pyodide, and ingest handler code (`packages/runtime`) runs in the browser workers, the Node tests, the CLI, and the MCP server. Tests therefore exercise real engines, never mocks. Every host hashes the same canonical workbook form and records the same version in replay artifacts.
 - **Hardened workers.** Deadlines escalate from cooperative cancellation (a `SharedArrayBuffer` signal when the page is cross-origin isolated) to a worker respawn. A crash respawns the worker, restores registered datasets, and then re-sends held requests in their original order. Three crashes within 60 s mark the engine `failed`, with a manual retry.
 - **Safe SQL.** User SQL is one `SELECT` over registered tables, checked by DuckDB's own AST serializer, with a stricter lexical guard as fallback. File and URL reads, DDL, and external readers are rejected.
 - **Bring your own data.** `.csv`, `.parquet`, and `.xlsx` files are parsed locally. The XLSX reader (exceljs) lives only in the lazily loaded ingest worker chunk.
 - **Honest telemetry.** Cold boot per engine, first evaluation (which may include boot), and warm DAG evaluation are reported separately.
-- **No main-thread jank.** The grid renders only the visible cells plus 4 rows and 2 columns of overscan, across 1,048,576 × 16,384 cells. X-Ray geometry is recomputed only when the window, layout, graph, selection, or lineage changes. The end-to-end tests fail on any main-thread task over 50 ms while scrolling, typing, or rendering X-Ray.
-- **Small main bundle.** The main JavaScript is 193.0 kB gzip, against a 350 KB budget. exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
+- **No main-thread jank.** The grid renders only the visible cells plus 4 rows and 2 columns of overscan, across 1,048,576 × 16,384 cells. An edit re-links only the edited cells, and the scheduler checks its 8 ms slice in every phase of a recalculation, so editing the input of 20,000 formulas never holds the main thread for 50 ms. X-Ray geometry is recomputed only when the window, layout, graph, selection, or lineage changes. The end-to-end tests fail on any main-thread task over 50 ms while scrolling, typing, recalculating, or rendering X-Ray.
+- **Small main bundle.** The main JavaScript is 194.3 kB gzip, against a 350 KB budget. exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
 
-The design is specified in `.kiro/specs/` (requirements, design, and tasks for each of the four specs), and the binding rules are in `.kiro/steering/`.
+The design is specified in `.kiro/specs/` (requirements, design, and tasks for each of the five specs), and the binding rules are in `.kiro/steering/`.
 
 ## Local setup
 
@@ -68,13 +110,14 @@ Requirements: Node.js 22 or later, and pnpm (`corepack enable` picks up the pinn
 ```bash
 pnpm install          # install the workspace
 pnpm dev              # start the Vite dev server for packages/web
-pnpm test             # unit, integration, and property tests (core + web, real engines in Node)
-pnpm build            # production build of packages/web into packages/web/dist
+pnpm test             # unit, integration, and property tests: core, runtime (real engines in Node), web,
+                      # and the compiled CLI and MCP server end to end
+pnpm build            # production builds: packages/web/dist, packages/cli/dist, packages/mcp/dist
 pnpm typecheck        # strict TypeScript across the workspace
 pnpm run licenses     # dependency license audit
 ```
 
-Playwright end-to-end tests: five UI journeys (flagship discovery and replay, the 100k-row audit across sheets, CSV drag-and-drop with live SQL and Python, XLSX with a custom assertion and the Python trust gate, a 390×844 viewport with a DOM trademark scan), plus the flagship, ingest, and worker-hardening specs:
+Playwright end-to-end tests (16, none skipped): five UI journeys (flagship discovery and replay, the 100k-row audit across sheets, CSV drag-and-drop with live SQL and Python, XLSX with a custom assertion and the Python trust gate, a 390×844 viewport with a DOM trademark scan), the 20,000-formula recalculation under the 50 ms task limit, the unisolated readiness pill, and the flagship, ingest, and worker-hardening specs:
 
 ```bash
 pnpm --filter @suture/web exec playwright install --with-deps chromium
@@ -92,6 +135,7 @@ Suture is released under the [MIT License](LICENSE). Dependencies must be permis
 - GPL, LGPL, and AGPL are not allowed. A dual license such as `MIT OR GPL-3.0` is accepted through its permissive alternative.
 - MPL-2.0 is allowed only for the unmodified Pyodide runtime.
 - A package that declares no license fails the audit.
+- The MCP server's SDK (`@modelcontextprotocol/server` and `core`, Apache-2.0) and `zod` (MIT) add 3 packages and pass the audit.
 
 `pnpm run licenses` (`scripts/license-check.mjs`) parses every package in `pnpm-lock.yaml` as an SPDX expression and enforces these rules. Two workspace pins in `pnpm-workspace.yaml` exist only to satisfy the policy:
 - Vite is pinned to 7.x, because Vite 8 depends on `lightningcss` (MPL-2.0).
@@ -102,7 +146,7 @@ Suture is released under the [MIT License](LICENSE). Dependencies must be permis
 Suture was built with [Kiro](https://kiro.dev) in a spec-driven workflow:
 
 1. **Steering** (`.kiro/steering/`) fixes the non-negotiables: the `CellValue` contract, error propagation, worker isolation, the license policy, and design tokens.
-2. **Specs** (`.kiro/specs/01…04`) turn each subsystem into numbered requirements, a design, and a task list. Each finished task is checked off with the commit and test file that prove it.
+2. **Specs** (`.kiro/specs/01…05`) turn each subsystem into numbered requirements, a design, and a task list. Each finished task is checked off with the commit and test file that prove it.
 3. **Hooks** (`.kiro/hooks/`) run after the agent writes a source file. `pbt-on-core-save` re-runs the core test and property suites and logs new counterexamples. `spec-drift-guard` compares the file against its governing design spec and reports any drift.
 4. **Agents** (`.kiro/agents/`) take adversarial roles: the `pbt-adversary` writes properties meant to break the engine.
 

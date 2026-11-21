@@ -1,6 +1,8 @@
 # Tasks: WASM Worker Bridge
 
-Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with Playwright (Chromium, plus WebKit where a task says so). Do not use watch mode.
+Unit tests run with `npx vitest --run` in `packages/runtime` (real engines) and `packages/web`. Browser tests run with Playwright (Chromium, plus WebKit where a task says so). Do not use watch mode.
+
+Phase 5 moved the real-engine tests and the engine code from `packages/web` to `packages/runtime` (Spec 05 task 1.1). Evidence paths below name each file where it was at the cited commit.
 
 - [ ] 1. Protocol
   - [ ] 1.1 Implement `workers/protocol.ts` exactly per design §3, with exhaustive type guards and `transferListOf`.
@@ -97,7 +99,7 @@ Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with
   - [x] 9.1 Run the Spec 01 workbook fixtures end to end against the real DuckDB and Pyodide workers.
     - Verify: values equal the expected snapshots; the same fixtures run in `packages/cli` with Node adapters give bit-identical values.
     - _Requirements: Spec 01 Req 11_
-    - Evidence: 746416e — `test/flagships.test.ts` runs the browser handlers against real engines in Node. The `packages/cli` comparison is pending (no CLI package yet).
+    - Evidence: 746416e — `test/flagships.test.ts` runs the browser handlers against real engines in Node. bce9d9a — `packages/cli/test/cli.test.ts` runs `suture eval flagship:1 --json` through the compiled CLI and checks every numeric cell is bit-identical (`Object.is`) to the same handlers driven in-process.
   - [ ] 9.2 Add the Playwright cold-load test (design §9).
     - Verify: it writes `cold-load.json` and fails when any Req 10.2 budget is exceeded.
     - _Requirements: 1.4, 10.1–10.3_

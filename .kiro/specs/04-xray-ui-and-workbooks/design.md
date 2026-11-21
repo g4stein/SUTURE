@@ -239,7 +239,7 @@ flowchart TD
 - Each sheet table is registered with `EngineHost.registerDataset({ name, bytes: table.ipc, sourceFormat: 'xlsx', encoding: 'arrow' })` (Spec 02 Req 5.3), and the returned `DatasetMeta` is applied as a `registerDataset` edit.
 - **Export workbook** writes the current document (definition plus the edited `ExorcistConfig`) as `<title>.suture.json`; importing it reproduces the same hash.
 
-### 6.2 Python trust gate (`engines/gatedPy.ts`)
+### 6.2 Python trust gate (`gatedPy.ts`, in `@suture/runtime/bridge` since Phase 5)
 
 ```ts
 export const PY_BLOCKED_MESSAGE = 'Python is blocked until you trust this workbook';
@@ -252,7 +252,7 @@ export function gatedPyEngine(inner: PyEngine, isBlocked: (cell: CellKey) => boo
 - A cell the user edits becomes user-authored and leaves the set.
 - Exorcise Model is disabled while any cell is blocked, because a session would execute that Python in its worker.
 
-## 7. Flagship workbooks (`workbooks/`)
+## 7. Flagship workbooks (`@suture/runtime/workbooks`, `packages/runtime/src/workbooks/` since Phase 5)
 
 Both documents are TypeScript modules (`workbooks/saasRunway.ts`, `workbooks/ecommerceMargin.ts`) that build a `SutureDocument` with the helpers in `workbooks/build.ts`. Each module also exports `WorkbookNotes` (the flaw, the control edit, and the expected assertion id), which the estimation and control tests use. SQL and Python sources are exported constants, so tests and docs reference one copy. Built-in hashes are computed at runtime with `workbookHash` over the canonical definition. Replay links (Req 7.3) compare against those hashes, so no generated hash file can drift from the source.
 
@@ -426,7 +426,7 @@ History for flagship 2:
 ## 8. Tests for flagship discovery
 
 The flagship tests run against **real engines**, never mocks:
-- **Node:** `packages/web/test/flagships.test.ts` uses the host-agnostic handlers (Spec 02 §2) through `test/hosts/nodeEngines.ts`, with DuckDB's Node build and Pyodide with NumPy.
+- **Node:** `packages/runtime/test/flagships.test.ts` uses the host-agnostic handlers (Spec 02 §1.1) through `@suture/runtime/node`, with DuckDB's Node build and Pyodide with NumPy. The CLI tests (`packages/cli/test/cli.test.ts`) run the same discovery through the compiled `suture` binary.
 - **Browser:** `packages/web/e2e/flagships.spec.ts` runs both flagships in Chromium. For each one it checks that the base case holds, discovers the flaw from a fresh seed, uses Apply Counterexample to trip the assertion, and replays the artifact exactly. Journeys 1 and 2 (§13) repeat discovery through the full UI.
 
 ```mermaid
@@ -510,10 +510,14 @@ All journeys run on the production build behind COOP `same-origin` / COEP `crede
 | 4 | Real `.xlsx` with formulas (`#NAME?` for a function outside the 30), imported Python blocked with no Pyodide request, trust, a custom fuzz domain and `lte` assertion edited in the studio, in-process Exorcist, Apply trips the custom assertion, no uploads |
 | 5 | 390×844: no horizontal overflow for all three workbooks, Exorcise Model in the viewport and runnable, zero banned names in the DOM (§9) |
 
+Two more tests in `e2e/journeys.spec.ts` complete the suite (Phase 5, 16 tests, none skipped):
+- **Req 1.5:** editing the input of 20,000 formulas runs with no main-thread task over 50 ms. It relies on the Spec 01 incremental graph and sliced preamble, plus the store's edit-scoped re-index. The same test jumps through a defined name in the name box.
+- **Req 4.1:** the app page served without COOP/COEP shows `Degraded (restart on timeout)` for each engine once it loads, with the reason in the accessible name and the `crossOriginIsolated` note in the popover.
+
 The Phase 2 slice spec was retired with the slice workbook; Journey 3 carries its readiness, warm-eval, and live-query coverage.
 
 ## 14. Caching, narrow viewports, and layout
 
 - **No service worker.** Hashed `/assets/*` files are served with `Cache-Control: public, max-age=31536000, immutable` (`vercel.json`); `index.html` keeps `max-age=0, must-revalidate`, so a deploy never strands old chunks; COOP/COEP headers are unchanged. The engine WASM comes from jsDelivr, which already serves it with a one-year `max-age` (DuckDB also `immutable`). A service worker would add offline use, at the cost of precaching about 40 MB of cross-origin engine files, re-serving every navigation with exact COOP/COEP headers, and the risk of a stale worker serving an `index.html` that points at deleted chunks.
 - **Narrow viewports (< 768 px):** the layout stacks into one column, the studio becomes a collapsible bottom sheet, the top bar wraps with Exorcise Model visible, a banner says desktop is optimal, and only the grid scrolls sideways (`html, body { overflow: hidden }`).
-- **Bundle:** the main chunk is 663.3 kB raw / 193.0 kB gzip (budget 350 KB). exceljs/jszip, DuckDB-WASM, and Pyodide appear only in their worker chunks.
+- **Bundle:** the main chunk is 668.1 kB raw / 194.3 kB gzip (budget 350 KB; Phase 5 added 1.4 kB gzip for the incremental scheduler in core). exceljs/jszip, DuckDB-WASM, and Pyodide appear only in their worker chunks.

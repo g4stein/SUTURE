@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as fc from 'fast-check';
 import { tableFromIPC } from 'apache-arrow';
@@ -7,11 +8,9 @@ import {
   createWorkbookEngine, literalDisplay, NEVER_CANCELLED, toCellKey,
   type CellKey, type Edit, type WorkbookDefinition,
 } from '@suture/core';
-import { nodeEngines, nodeSha256, type NodeEngines } from './hosts/nodeEngines.ts';
-import { openNodeDuckDB } from './nodeDuckdb.ts';
-import { ingestXlsx, translateSharedFormula, type WorkbookCtor } from '../src/workers/ingestHandler.ts';
-import { sanitizeDatasetName } from '../src/workers/datasetName.ts';
-import type { RegisterDatasetPayload, WorkerResult } from '../src/workers/protocol.ts';
+import { nodeEngines, nodeHasher, openNodeDuckDB, type NodeEngines } from '../src/node/index.ts';
+import { ingestXlsx, translateSharedFormula, type WorkbookCtor } from '../src/engines/index.ts';
+import { sanitizeDatasetName, type RegisterDatasetPayload, type WorkerResult } from '../src/bridge/index.ts';
 
 /** exceljs's browser build (the one ingest.worker.ts bundles) also runs in Node; its Node entry needs the removed unzipper. */
 const require = createRequire(import.meta.url);
@@ -23,7 +22,7 @@ beforeAll(async () => { e = await nodeEngines(); });
 const OPTS = { priority: 'interactive' as const, deadlineMs: 120_000, signal: null, generation: null };
 
 async function register(name: string, bytes: Uint8Array, sourceFormat: RegisterDatasetPayload['sourceFormat'], encoding: RegisterDatasetPayload['encoding']): Promise<WorkerResult> {
-  const hex = [...(await nodeSha256(bytes))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  const hex = [...(await nodeHasher.sha256(bytes))].map((x) => x.toString(16).padStart(2, '0')).join('');
   return e.duckdb.request('duckdb.registerDataset', { name, sourceFormat, encoding, bytes, sha256: hex }, OPTS);
 }
 
@@ -78,9 +77,10 @@ describe('BYO data ingest against real DuckDB-WASM (Spec 02 Req 5)', () => {
 
   it('.parquet: the extension loads lazily on the first Parquet upload, then ingests', async () => {
     // Generate a real Parquet file with DuckDB itself (a separate connection with autoload on).
-    const gen = await openNodeDuckDB();
+    const gen = (await openNodeDuckDB()).conn;
     gen.query("COPY (SELECT i AS id, i * 1.5 AS amount, CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END AS parity FROM range(2500) t(i)) TO 'gen.parquet' (FORMAT parquet)");
     const bytes = gen.useUnsafe((b) => b.copyFileToBuffer('gen.parquet'));
+    rmSync('tmp_gen.parquet', { force: true }); // DuckDB's Node file system leaves its COPY staging file in the working directory
     const t0 = performance.now();
     const r = await register('ledger', bytes, 'parquet', 'parquet');
     console.info(`[ingest] first Parquet upload (incl. lazy INSTALL/LOAD parquet): ${Math.round(performance.now() - t0)} ms`);

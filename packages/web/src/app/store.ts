@@ -1,23 +1,20 @@
 import {
-  assertionHolds, createWorkbookEngine, decodeScalar, fromReplayFragment, isCellError, isReplayArtifact, NEVER_CANCELLED, parseA1, parseCellKey,
+  assertionHolds, createWorkbookEngine, decodeScalar, fromReplayFragment, isCellError, isReplayArtifact, literalDisplay, NEVER_CANCELLED, parseA1, parseCellKey,
   scenarioEdits, splitSheetPrefix, toCellKey, validateConfig, workbookHash,
-  type CellAssertion, type CellKey, type CellSource, type CellValue, type DatasetMeta, type Edit, type EngineId, type ExecutionMode, type ExorcistConfig,
+  type CellKey, type CellSource, type CellValue, type DatasetMeta, type Edit, type EngineId, type ExecutionMode, type ExorcistConfig,
   type ExorcistProgress, type ExorcistVerdict, type LineagePath, type ReplayArtifact, type ReplayOutcome, type ScalarValue, type SutureDocument, type TableRef,
   type WorkbookEngine,
 } from '@suture/core';
+import {
+  detectIsolation, gatedPyEngine, PyBridge, sanitizeDatasetName, SqlBridge,
+  type EngineName, type EngineStatus, type IsolationInfo,
+} from '@suture/runtime/bridge';
+import { assertionLabel } from '@suture/runtime/headless';
+import { blankDocument, ecommerceMarginDocument, saasRunwayDocument, validateDocument } from '@suture/runtime/workbooks';
 import { EngineHost, type Telemetry } from '../workers/engineHost.ts';
-import { PyBridge, SqlBridge } from '../workers/bridges.ts';
-import { detectIsolation, type IsolationInfo } from '../workers/isolation.ts';
 import { isExorcistEvent, type ExorcistCommand } from '../workers/exorcistProtocol.ts';
-import { sanitizeDatasetName } from '../workers/datasetName.ts';
-import type { EngineName, EngineStatus } from '../workers/protocol.ts';
 import { randomSeed, webClock, webCompressor, webHasher, yieldControl } from '../engines/hostAdapters.ts';
-import { gatedPyEngine } from '../engines/gatedPy.ts';
 import { checkImport } from '../import/routeFile.ts';
-import { validateDocument } from '../import/validateDocument.ts';
-import { saasRunwayDocument } from '../workbooks/saasRunway.ts';
-import { ecommerceMarginDocument } from '../workbooks/ecommerceMargin.ts';
-import { blankDocument } from '../workbooks/blank.ts';
 import { formatValue } from './format.ts';
 
 export type WorkbookId = 'saas' | 'ecommerce' | 'blank';
@@ -134,19 +131,8 @@ export interface AppSnapshot {
   readonly usesPy: boolean;
 }
 
-const LABELS: Readonly<Record<CellAssertion['kind'], string>> = { finite: 'finite', notError: 'not error', notNull: 'not null', gte: '≥', lte: '≤', gt: '>', lt: '<', between: 'between', monotonicWith: 'monotonic with' };
 const RECALC = { tieBreak: { kind: 'rowMajor' as const }, token: NEVER_CANCELLED, sliceMs: 8 };
 const TOAST_MS = 5000;
-
-export function assertionLabel(a: CellAssertion): string {
-  const op = (o: { readonly kind: 'const'; readonly value: number } | { readonly kind: 'cell'; readonly cell: CellKey }): string => (o.kind === 'const' ? String(o.value) : o.cell);
-  switch (a.kind) {
-    case 'gte': case 'lte': case 'gt': case 'lt': return `${LABELS[a.kind]} ${op(a.operand)}`;
-    case 'between': return `between ${op(a.min)} and ${op(a.max)}`;
-    case 'monotonicWith': return `${a.direction === 'nonDecreasing' ? 'non-decreasing' : 'non-increasing'} in ${a.input}`;
-    default: return LABELS[a.kind];
-  }
-}
 
 const upperKey = (k: string): string => k.toUpperCase();
 
@@ -171,6 +157,10 @@ export class AppStore {
   /** Cell sources by key, rebuilt after every edit (the grid reads raw text from here). */
   private sources = new Map<string, CellSource>();
   private dialects = new Map<string, EngineId | 'literal'>();
+  /** Cells per dialect, so `usesSql` / `usesPy` never rescan the workbook on an edit. */
+  private dialectCounts = new Map<EngineId | 'literal', number>();
+  /** Table results with at least 1,000 rows (telemetry), maintained from commit events instead of a per-frame scan. */
+  private largeTableKeys = new Map<string, { key: CellKey; rowCount: number; cols: number }>();
   private lastIndexedDoc: SutureDocument | null = null;
   /** A replay that arrived for a document with untrusted Python; it runs once the user trusts the workbook. */
   private replayAfterTrust: ReplayArtifact | null = null;
@@ -271,7 +261,10 @@ export class AppStore {
     this.engine = this.makeEngine(doc);
     const datasetEdits = this.snapshot.datasets.map((d) => ({ kind: 'registerDataset' as const, meta: d.meta }));
     if (datasetEdits.length > 0) this.engine.applyEdits(datasetEdits);
+    this.largeTableKeys.clear();
     this.unsubscribe = this.engine.subscribe((e) => {
+      if (e.kind === 'cellCommitted') this.trackLargeTable(e.key, e.value);
+      else if (e.kind === 'cellPending') this.largeTableKeys.delete(upperKey(e.key));
       if (e.kind === 'cellCommitted' || e.kind === 'cellPending') this.queueRefresh();
     });
     this.reindex();
@@ -287,23 +280,82 @@ export class AppStore {
     this.refresh();
   }
 
+  private dialectOf(key: CellKey): EngineId | 'literal' {
+    const p = this.engine.getParsed(key);
+    return p === null || p.dialect === 'literal' ? 'literal' : p.dialect === 'formula' ? 'formula' : p.dialect;
+  }
+
+  private countDialect(d: EngineId | 'literal', by: number): void {
+    this.dialectCounts.set(d, (this.dialectCounts.get(d) ?? 0) + by);
+  }
+
+  /** Full index of sources and dialects: on open, on import, and on structural edits (never on the typing path). */
   private reindex(): void {
-    const sources = new Map<string, CellSource>();
-    const dialects = new Map<string, EngineId | 'literal'>();
+    this.sources = new Map();
+    this.dialects = new Map();
+    this.dialectCounts = new Map();
     for (const s of this.engine.definition().sheets) {
       for (const c of s.cells) {
         const k = upperKey(c.key);
-        sources.set(k, c);
-        const p = this.engine.getParsed(c.key);
-        dialects.set(k, p === null || p.dialect === 'literal' ? 'literal' : p.dialect === 'formula' ? 'formula' : p.dialect);
+        const d = this.dialectOf(c.key);
+        this.sources.set(k, c);
+        this.dialects.set(k, d);
+        this.countDialect(d, 1);
       }
     }
-    this.sources = sources;
-    this.dialects = dialects;
-    const all = [...dialects.values()];
+    this.indexed();
+  }
+
+  /** Re-indexes only the cells a batch of cell edits touched (Spec 04 Req 1.5: an edit costs O(edited cells) here). */
+  private reindexEdits(edits: ReadonlyArray<Edit>): void {
+    for (const e of edits) {
+      if (e.kind !== 'setCell' && e.kind !== 'setLiteral' && e.kind !== 'clearCell') {
+        this.reindex();
+        return;
+      }
+    }
+    for (const e of edits) {
+      if (e.kind !== 'setCell' && e.kind !== 'setLiteral' && e.kind !== 'clearCell') continue;
+      const canonical = this.canonicalCell(e.key);
+      const k = upperKey(canonical ?? e.key);
+      const before = this.dialects.get(k);
+      if (before !== undefined) this.countDialect(before, -1);
+      this.sources.delete(k);
+      this.dialects.delete(k);
+      const parsed = canonical === null ? null : this.engine.getParsed(canonical);
+      if (canonical === null || parsed === null) {
+        this.largeTableKeys.delete(k);
+        continue;
+      }
+      const d = this.dialectOf(canonical);
+      this.sources.set(k, e.kind === 'setLiteral' ? { key: canonical, raw: literalDisplay(e.value), literal: e.value } : { key: canonical, raw: e.kind === 'setCell' ? e.raw : '' });
+      this.dialects.set(k, d);
+      this.countDialect(d, 1);
+    }
+    this.indexed();
+  }
+
+  private indexed(): void {
     const config = this.doc === this.lastIndexedDoc ? this.snapshot.config : this.doc.exorcist;
     this.lastIndexedDoc = this.doc;
-    this.set({ editVersion: this.snapshot.editVersion + 1, usesSql: all.includes('sql'), usesPy: all.includes('py'), configCheck: this.checkConfig(config) });
+    this.set({
+      editVersion: this.snapshot.editVersion + 1,
+      usesSql: (this.dialectCounts.get('sql') ?? 0) > 0, usesPy: (this.dialectCounts.get('py') ?? 0) > 0,
+      configCheck: this.checkConfig(config),
+    });
+  }
+
+  /** The engine's key for a cell (sheet name in the workbook's casing), or null when the sheet does not exist. */
+  private canonicalCell(key: CellKey): CellKey | null {
+    const c = parseCellKey(key);
+    if (c === null) return null;
+    const sheet = this.snapshot.sheets.find((s) => s.toUpperCase() === c.sheet.toUpperCase()) ?? this.engine.definition().sheets.find((s) => s.name.toUpperCase() === c.sheet.toUpperCase())?.name;
+    return sheet === undefined ? null : toCellKey({ sheet, row: c.row, col: c.col });
+  }
+
+  private trackLargeTable(key: CellKey, v: CellValue): void {
+    if (v !== null && typeof v === 'object' && v.kind === 'table' && v.rowCount >= 1000) this.largeTableKeys.set(upperKey(key), { key, rowCount: v.rowCount, cols: v.schema.length });
+    else this.largeTableKeys.delete(upperKey(key));
   }
 
   private checkConfig(config: ExorcistConfig): ConfigCheck {
@@ -335,13 +387,15 @@ export class AppStore {
       const r = assertionHolds(a, look, null);
       return { id: a.id, cell: a.cell, label: assertionLabel(a), ok: r.ok, detail: r.detail };
     });
-    const largeTables: Array<{ key: CellKey; rowCount: number; cols: number }> = [];
-    for (const s of this.engine.definition().sheets) {
-      for (const c of s.cells) {
-        const v = this.engine.getValue(c.key);
-        if (v !== 'pending' && v !== null && typeof v === 'object' && v.kind === 'table' && v.rowCount >= 1000) largeTables.push({ key: c.key, rowCount: v.rowCount, cols: v.schema.length });
-      }
-    }
+    const sheetIndex = (k: CellKey): number => {
+      const sheet = parseCellKey(k)?.sheet.toUpperCase();
+      return this.snapshot.sheets.findIndex((x) => x.toUpperCase() === sheet);
+    };
+    const largeTables = [...this.largeTableKeys.values()].sort((a, b) => {
+      const ca = parseCellKey(a.key);
+      const cb = parseCellKey(b.key);
+      return sheetIndex(a.key) - sheetIndex(b.key) || (ca?.row ?? 0) - (cb?.row ?? 0) || (ca?.col ?? 0) - (cb?.col ?? 0);
+    });
     this.set({ assertions, largeTables, valueVersion: this.snapshot.valueVersion + 1 });
   }
 
@@ -488,7 +542,7 @@ export class AppStore {
   private async applyUserEdits(edits: ReadonlyArray<Edit>): Promise<void> {
     for (const e of edits) if (e.kind === 'setCell' || e.kind === 'clearCell' || e.kind === 'setLiteral') this.untrusted.delete(upperKey(e.key));
     this.engine.applyEdits(edits);
-    this.reindex();
+    this.reindexEdits(edits);
     this.set({ untrustedPy: this.untrusted.size });
     this.refresh();
     this.scheduleStaleCheck();
@@ -810,8 +864,9 @@ export class AppStore {
     const a = this.currentArtifact();
     if (a === null) return;
     const previous = this.snapshot.applied?.previous ?? a.failingInputs.map((f) => ({ key: f.cell, source: this.source(f.cell) }));
-    this.engine.applyEdits(scenarioEdits(a.failingInputs));
-    this.reindex();
+    const edits = scenarioEdits(a.failingInputs);
+    this.engine.applyEdits(edits);
+    this.reindexEdits(edits);
     this.set({ applied: { artifact: a, previous } });
     this.refresh();
     if (this.snapshot.focus?.artifact !== a) void this.focusArtifact(a, null);
@@ -830,7 +885,7 @@ export class AppStore {
       return { kind: 'setCell', key: p.key, raw: p.source.raw };
     });
     this.engine.applyEdits(edits);
-    this.reindex();
+    this.reindexEdits(edits);
     this.set({ applied: null });
     this.refresh();
     await this.recalc(false);

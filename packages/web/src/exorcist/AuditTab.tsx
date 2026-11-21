@@ -1,17 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ExecutionMode, ReplayArtifact, UniversalInvariantId } from '@suture/core';
+import { TIER1_INVARIANTS as TIER1 } from '@suture/runtime/headless';
 import type { AppSnapshot, AppStore, ExorcistUi } from '../app/store.ts';
 import { formatScalar, formatSummary } from '../app/format.ts';
 
 export const MODE_LABEL: Readonly<Record<ExecutionMode, string>> = { inProcess: 'In-Process fast-check', batched: 'Batched WASM' };
-
-const TIER1: ReadonlyArray<{ readonly id: UniversalInvariantId; readonly label: string }> = [
-  { id: 'T1.noUnhandledException', label: 'no kernel throws' },
-  { id: 'T1.noNonFiniteLeak', label: 'no NaN or ±Infinity reaches a cell' },
-  { id: 'T1.strictErrorPropagation', label: 'errors propagate strictly from their origin' },
-  { id: 'T1.editOrderDeterminism', label: 'results do not depend on edit order' },
-  { id: 'T1.crossEngineTolerance', label: 'SQL and NumPy agree within 1e-9 (batched)' },
-];
 
 export function statusText(x: ExorcistUi): string {
   switch (x.kind) {

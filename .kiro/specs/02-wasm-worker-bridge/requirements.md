@@ -32,7 +32,7 @@ Glossary:
 **User Story:** As a maintainer, I want one exact message contract, so that every client and worker agree on every field.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL define every request, response, control, and peer message as the TypeScript unions in `design.md` §3, in the single module `packages/web/src/workers/protocol.ts`.
+1. THE SYSTEM SHALL define every request, response, control, and peer message as the TypeScript unions in `design.md` §3, in the single module `packages/runtime/src/bridge/protocol.ts` (`@suture/runtime/bridge`; in `packages/web/src/workers/` until Phase 5).
 2. THE SYSTEM SHALL tag every message with `protocol: 1`.
 3. THE SYSTEM SHALL give every request a `requestId` that is unique and strictly increasing per client port, and a `generation` that is the recalculation generation for cell-evaluation requests and `null` for lifecycle requests (init, dataset, release, ingest).
 4. THE SYSTEM SHALL send exactly one terminal response (`result`) per request, or resolve it through crash recovery (Requirement 9).

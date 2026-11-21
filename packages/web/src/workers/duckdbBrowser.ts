@@ -1,6 +1,6 @@
 import { createDuckDB, getJsDelivrBundles, selectBundle, BROWSER_RUNTIME, VoidLogger } from 'duckdb-wasm-blocking';
-import { createDuckDbHandler } from './duckdbHandler.ts';
-import { isPeerMessage, PROTOCOL_VERSION, type PeerMessage } from './protocol.ts';
+import { createDuckDbHandler } from '@suture/runtime/engines';
+import { isPeerMessage, PROTOCOL_VERSION, type PeerMessage } from '@suture/runtime/bridge';
 
 /** Browser host for the DuckDB handler (used by duckdb.worker.ts and the e2e-only chaos entry): synchronous bindings inside this top-level worker (zero nested workers). */
 export const createBrowserDuckDb = (): ReturnType<typeof createDuckDbHandler> => createDuckDbHandler({
