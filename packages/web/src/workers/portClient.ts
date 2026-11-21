@@ -65,6 +65,8 @@ export class PortClient implements EngineClient {
   private readonly pending = new Map<number, Pending>();
   /** Running requests that were signalled to stop; if the worker does not settle within 1 s, escalate. */
   private readonly escalations = new Map<number, ReturnType<typeof setTimeout>>();
+  /** Requests sent to a crashed worker but never started; re-sent by resume() once the replacement is initialized. */
+  private held: number[] = [];
 
   constructor(port: MessagePort, private opts: PortClientOptions) {
     this.port = port;
@@ -163,7 +165,10 @@ export class PortClient implements EngineClient {
     });
   }
 
-  /** Crash recovery (Spec 02 §7): resolve the running request by cause, re-send the never-started ones in order. */
+  /**
+   * Crash recovery (Spec 02 §7): resolve the running request by cause and hold the never-started ones. The host calls
+   * resume() after the replacement worker is initialized and its state restored, so held requests never overtake init.
+   */
   replacePort(port: MessagePort, runningRequestId: number | null, cause: RespawnCause, reason: string): void {
     this.port.onmessage = null;
     this.port = port;
@@ -188,7 +193,17 @@ export class PortClient implements EngineClient {
       }
       p.started = false;
       p.timer = null;
-      this.port.postMessage(p.message);
+      this.held.push(id);
+    }
+  }
+
+  /** Re-sends held requests, in their original order. */
+  resume(): void {
+    const ids = this.held;
+    this.held = [];
+    for (const id of ids) {
+      const p = this.pending.get(id);
+      if (p !== undefined) this.port.postMessage(p.message);
     }
   }
 

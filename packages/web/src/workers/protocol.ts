@@ -105,12 +105,15 @@ export type PyRequest =
   | RequestBase<'py.run', PyRunPayload>
   | RequestBase<'py.runBatch', PyRunBatchPayload>;
 
+/** A cell imported from a spreadsheet file: formulas and error values as source text, values as lossless literals. */
+export type IngestCell =
+  | { readonly row: number; readonly col: number; readonly kind: 'raw'; readonly raw: string }
+  | { readonly row: number; readonly col: number; readonly kind: 'literal'; readonly value: ScalarValue };
+
 export interface XlsxIngestResult {
-  readonly sheets: ReadonlyArray<{
-    readonly name: string;
-    readonly cells: ReadonlyArray<{ readonly row: number; readonly col: number; readonly raw: string }>;
-  }>;
-  readonly tables: ReadonlyArray<{ readonly sheet: string; readonly ipc: Uint8Array; readonly header: 'firstRow' | 'columnLetters' }>;
+  readonly sheets: ReadonlyArray<{ readonly name: string; readonly cells: ReadonlyArray<IngestCell> }>;
+  /** One table per sheet (cached formula results as values), Arrow IPC stream bytes; transferred. */
+  readonly tables: ReadonlyArray<{ readonly sheet: string; readonly ipc: Uint8Array; readonly header: 'firstRow' | 'columnLetters'; readonly rowCount: number }>;
   readonly warnings: ReadonlyArray<string>;
 }
 
