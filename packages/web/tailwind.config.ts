@@ -6,16 +6,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        obsidian: '#0B0E13',
-        'slate-surface': '#121821',
-        'slate-raised': '#1A2230',
+        obsidian: '#090B10',
+        'slate-surface': '#10141D',
+        'slate-raised': '#171C28',
         'slate-line': '#263142',
         ink: '#D6DEEA',
         'ink-muted': '#7C8AA0',
-        'engine-sql': '#22D3EE',
+        'engine-sql': '#06B6D4',
         'engine-py': '#F59E0B',
         'engine-formula': '#10B981',
-        fracture: '#DC143C',
+        fracture: '#F43F5E',
       },
       fontFamily: {
         mono: ['ui-monospace', 'JetBrains Mono', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],

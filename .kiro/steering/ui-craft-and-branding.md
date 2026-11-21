@@ -13,20 +13,21 @@ Suture looks like a quantitative terminal: dense, precise, quiet. The Kiroween m
 
 | Token | Value | Use |
 |---|---|---|
-| `obsidian` | `#0B0E13` | App background |
-| `slate-surface` | `#121821` | Grid, panels |
-| `slate-raised` | `#1A2230` | Headers, popovers |
-| `slate-line` | `#263142` | Gridlines, borders |
+| `obsidian` | `#090B10` | App background |
+| `slate-surface` | `#10141D` | Grid, panels |
+| `slate-raised` | `#171C28` | Headers, popovers |
+| `slate-line` | `#263142` | Gridlines, hairline borders |
 | `ink` | `#D6DEEA` | Primary text |
 | `ink-muted` | `#7C8AA0` | Secondary text |
-| `engine-sql` | `#22D3EE` (cyan) | SQL cells and threads |
-| `engine-py` | `#F59E0B` (amber) | Python cells and threads |
-| `engine-formula` | `#10B981` (emerald) | Formula cells and threads |
-| `fracture` | `#DC143C` (crimson) | Failing lineage, counterexamples |
+| `engine-sql` | `#06B6D4` (cyan) | SQL cells and threads (`SQL` chip) |
+| `engine-py` | `#F59E0B` (amber) | Python cells and threads (`PY` chip) |
+| `engine-formula` | `#10B981` (emerald) | Formula cells and threads (`FX` chip) |
+| `fracture` | `#F43F5E` (surgical crimson) | Failing lineage, counterexamples, error codes |
 
 - Numbers use a tabular monospace font (`font-variant-numeric: tabular-nums`) and are right-aligned.
-- Body text meets WCAG AA contrast against its surface.
-- Engine colors come only from these tokens. Never hard-code hex values in components.
+- Body text meets WCAG AA contrast against its surface. Every text token is at least 4.5:1 on `slate-surface` and `slate-raised` (checked by `packages/web/test/contrast.test.ts`); `fracture` is 5.02:1 on `slate-surface`.
+- Engine colors come only from these tokens. Never hard-code hex values in components (checked by `packages/web/test/hexColors.test.ts`).
+- Fonts are the system monospace and sans-serif stacks. No web fonts are fetched.
 
 ## 2. X-Ray Mode
 
