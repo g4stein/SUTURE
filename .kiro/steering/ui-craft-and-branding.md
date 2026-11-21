@@ -54,7 +54,7 @@ Engines load progressively. The grid is never blocked waiting for them.
 3. **Pyodide + NumPy** loads lazily on the first `=PY()` cell (or when the browser is idle, after DuckDB).
 
 - The indicator tracks one of these internal states per engine: `not loaded`, `loading`, `ready`, `degraded`, `failed`.
-- Display labels: `not loaded` is shown as **Lazy** (for example `Python/NumPy Lazy`), meaning the engine will load on first use. Once loading begins the label is never Lazy again: it moves to `Loading`, then `Ready`, `Degraded (…)`, or `Failed`. The other states are shown by name.
+- Display labels: `not loaded` is shown as **Lazy** (for example `Python/NumPy: Lazy`, in the pill form `Grid: Ready | DuckDB: … | Python/NumPy: …`), meaning the engine will load on first use. Once loading begins the label is never Lazy again: it moves to `Loading`, then `Ready`, `Degraded (…)`, or `Failed`. The other states are shown by name.
 - Show real progress only when the loader reports bytes. Otherwise show an indeterminate state. Never show a fake percentage.
 - `degraded` states the reason in plain words, for example "DuckDB: timeouts restart the engine (page is not cross-origin isolated)".
 - Cells waiting for an engine show a pending state, not an error and not a stale value.

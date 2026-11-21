@@ -33,7 +33,7 @@ Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with
     - Verify (Day 2 probe): confirm the pinned version's synchronous-binding export names and that `json_serialize_sql` exists, and record both in the task notes.
     - Verify: Playwright on a page served with COOP/COEP reports `ready` with bundle `eh`; without the headers it reports `degraded` with the exact reason string; in both cases a `Worker` constructor spy inside the DuckDB worker records zero calls; a build with the probe forced to fail reports `validator: 'lexical'` and still answers `SELECT 42`.
     - _Requirements: 4.1–4.6_
-    - Evidence: c45d8bd — Phase 2 probe recorded in Spec 02 §5.1; `tm-validator` reports `ast` in `e2e/slice.spec.ts`.
+    - Evidence: c45d8bd — Phase 2 probe recorded in Spec 02 §5.1; `tm-validator` reported `ast` in `e2e/slice.spec.ts` (Phase 2–3; Journey 3 in `e2e/journeys.spec.ts` since Phase 4).
   - [x] 4.2 Install the deterministic macros.
     - Verify: a known-answer test shows `suture_h32(x)` equals core's lowbias32 finalizer for x in 0..9999; `suture_u01` lies in [0,1) over 100,000 values.
     - _Requirements: 4.3_
@@ -46,7 +46,7 @@ Unit tests run with `npx vitest --run` in `packages/web`. Browser tests run with
   - [x] 4.4 Implement query and queryBatch: prepared statements, bindings and views, streaming `send`, IPC encoding, the result cache with LRU, core normalization/collapse in-worker, and `releaseResults`.
     - Verify: `SELECT 1/0.0` gives `#NUM!` or `null` as the steering rules require; `SELECT 42` gives the scalar `42`; a 100k-row result arrives with its buffer transferred; queryBatch over 200 param sets returns 200 values in one response; releasing ids drops the temp tables (checked via `duckdb_tables()`).
     - _Requirements: 6.4–6.10_
-    - Evidence: c45d8bd, 746416e — `flagships.test.ts`, `slice.duckdb.test.ts`, `e2e/slice.spec.ts`.
+    - Evidence: c45d8bd, 746416e — `flagships.test.ts`, `slice.duckdb.test.ts`, `e2e/slice.spec.ts` (retired in Phase 4; coverage moved to Journey 3).
   - [x] 4.5 Implement dataset registration (CSV, Parquet, Arrow-from-XLSX), name sanitization, and `DatasetMeta`.
     - Verify: tests cover names `Q3 Sales.csv`→`q3_sales`, `2024.csv`→`_2024`, a collision→`_2`; a malformed CSV gives `failed` with DuckDB's message and no dataset.
     - _Requirements: 5.1–5.6_

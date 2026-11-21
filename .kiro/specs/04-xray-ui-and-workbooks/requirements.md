@@ -18,7 +18,7 @@ It uses these types unchanged:
 #### Acceptance Criteria
 1. THE SYSTEM SHALL render only the visible rows and columns plus an overscan of 4 rows and 2 columns.
 2. THE SYSTEM SHALL support sheets up to 1,048,576 rows and 16,384 columns, scaling the scroll extent so that no scroll container exceeds 8,000,000 px.
-3. THE SYSTEM SHALL support arrow-key, Tab, Shift+Tab, Enter, Shift+Enter, Page Up/Down, and Ctrl/Cmd+Home navigation, typing to start editing, and Delete/Backspace to clear.
+3. THE SYSTEM SHALL support arrow-key, Tab, Shift+Tab, Enter, Shift+Enter, Page Up/Down, Ctrl/Cmd+Home, and Ctrl/Cmd+End navigation, typing to start editing (every printable key, including `x`), F2 and double-click to edit, and Delete/Backspace to clear.
 4. THE SYSTEM SHALL display numbers right-aligned in tabular monospace figures with up to 12 significant digits, errors as their code in the `fracture` color, pending engine cells with a pending indicator, and `TableRef` and `Matrix2D` cells as a compact badge (`table 100,000×10`, `matrix 1×2`).
 5. WHILE the user scrolls, types, or selects, THE SYSTEM SHALL keep every main-thread task under 50 ms.
 6. THE SYSTEM SHALL expose the grid with `role="grid"`, `aria-rowcount`, `aria-colcount`, and `aria-selected` on the active cell.
@@ -49,10 +49,10 @@ It uses these types unchanged:
 **User Story:** As a user, I want to know honestly what is loaded, so that I understand any wait.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL show one pill with three segments in the form `Grid Ready | DuckDB <label> | Python/NumPy <label>`.
+1. THE SYSTEM SHALL show one pill with three segments in the form `Grid: Ready | DuckDB: <label> | Python/NumPy: <label>`, with a popover that shows `crossOriginIsolated`, the SQL validator, cold boot per engine, first and warm evaluation time, and dataset and large-table row counts.
 2. THE SYSTEM SHALL show the Grid segment as `Ready` once the grid is interactive.
 3. THE SYSTEM SHALL map each `EngineState` to a label: `notLoaded` → `Lazy`, `loading` → `Loading` (with a percentage only when `totalBytes` is known), `ready` → `Ready`, `degraded` → `Degraded (<short reason>)`, `failed` → `Failed`.
-4. WHEN the user opens a segment, THE SYSTEM SHALL show the full `EngineStatus.reason`, the crash count, and a Retry action for `failed` engines.
+4. WHEN the user opens the pill, THE SYSTEM SHALL show the full `EngineStatus.reason`, the crash count, and a Retry action for `failed` engines, and, when the page is not cross-origin isolated, explain the consequence based on `crossOriginIsolated` alone (no browser detection).
 5. THE SYSTEM SHALL NOT show `Lazy` for an engine that is loading, and SHALL NOT show a percentage the loader did not report.
 6. THE SYSTEM SHALL color each segment with its engine token (`engine-sql` for DuckDB, `engine-py` for Python/NumPy) and SHALL include the full label and reason in its accessible name.
 
@@ -68,18 +68,22 @@ It uses these types unchanged:
 5. WHEN an Exorcist verdict is `violated`, THE SYSTEM SHALL draw the artifact's lineage edges in `fracture` crimson, render the `failingEdge` as a broken thread with a gap at its midpoint, and pulse those edges.
 6. WHILE `prefers-reduced-motion: reduce` is set, THE SYSTEM SHALL show the fracture as a static crimson highlight.
 7. WHEN the user clicks a fractured thread, THE SYSTEM SHALL open the counterexample in the Exorcist panel.
-8. THE SYSTEM SHALL recompute thread geometry only when the visible window, the layout, the dependency graph, or the lineage changes.
+8. THE SYSTEM SHALL recompute thread geometry only when the visible window, the layout, the dependency graph, the selection, or the lineage changes.
+9. THE SYSTEM SHALL draw a static arrowhead at the dependent end of every thread, SHALL animate a flow highlight only on threads touching the selection (at most 64), and SHALL dim cells outside the focus: the lineage when one is active, else the selection and its direct precedents and dependents, else all connected cells.
+10. THE SYSTEM SHALL show one sheet-portal badge per connected sheet (direction and edge count) at the grid edge, and a click SHALL switch to that sheet and select the linked cell.
+11. WHEN an Exorcist verdict is `violated` or a replay reproduces, THE SYSTEM SHALL enable X-Ray, switch to the violated cell's sheet, show callout pills with the shrunk input, each engine's intermediate value under the counterexample (computed without changing the workbook), and the violated assertion, and show a lineage strip whose step chips switch to their sheet and select their cell.
+12. THE SYSTEM SHALL toggle X-Ray with Alt+X (Option+X) anywhere, and with a bare X only when focus is outside the grid and text inputs.
 
 ### Requirement 6: Bring your own data
 
 **User Story:** As an analyst, I want to drop in real files and start working immediately.
 
 #### Acceptance Criteria
-1. WHEN the user drops or picks a `.csv` or `.parquet` file, THE SYSTEM SHALL register it through `EngineHost.registerDataset` and apply a `registerDataset` edit with the returned `DatasetMeta`.
+1. WHEN the user drops a file anywhere on the window, or picks one with Import File, and it is a `.csv` or `.parquet` file, THE SYSTEM SHALL register it through `EngineHost.registerDataset`, apply a `registerDataset` edit with the returned `DatasetMeta`, and open its preview.
 2. WHEN the user drops or picks an `.xlsx` file, THE SYSTEM SHALL ingest it through `EngineHost.ingestXlsx`, add each sheet as a Suture sheet (renaming on collision), register each sheet table as a dataset through `EngineHost.registerDataset` (source format `xlsx`, encoding `arrow`), and show an import report with the number of cells that evaluate to `#NAME?` or `#VALUE!` and every ingest warning.
-3. WHEN the user drops or picks a `.suture.json` file, THE SYSTEM SHALL validate it as a `SutureDocument` and open it.
+3. WHEN the user drops or picks a `.suture.json` file, THE SYSTEM SHALL validate it as a `SutureDocument` and open it; WHEN the file is a replay `.json`, THE SYSTEM SHALL validate it with `isReplayArtifact` and hydrate it as in Req 7.3.
 4. IF a file is larger than 256 MiB, has an unsupported extension, or fails validation, THEN THE SYSTEM SHALL reject it with a message naming the reason and SHALL leave the workbook unchanged.
-5. WHEN a document that is not a built-in flagship contains `=PY()` cells, THE SYSTEM SHALL evaluate those cells to `#PY!` with the message "Python is blocked until you trust this workbook", until the user explicitly trusts the workbook.
+5. WHEN any imported file (a `.suture.json` that is not a built-in flagship, or an `.xlsx`) brings in `=PY()` cells, THE SYSTEM SHALL evaluate those cells to `#PY!` with the message "Python is blocked until you trust this workbook" without starting Pyodide, show a non-blocking trust banner while formulas and SQL keep running, and disable Exorcise Model, until the user explicitly trusts the workbook.
 6. WHILE an import is running, THE SYSTEM SHALL show its progress and keep the grid interactive.
 
 ### Requirement 7: Exorcist panel and replay links
@@ -87,8 +91,8 @@ It uses these types unchanged:
 **User Story:** As an auditor, I want to run the Exorcist, read its verdict, and share a link that reproduces it.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL let the user start and stop an Exorcist session, and SHALL show the mode, the seed, live progress, and the verdict.
-2. WHEN the verdict is `violated`, THE SYSTEM SHALL show the violated assertion (the expected rule), the observed value for Tier 2 or the invariant detail for Tier 1, the failing inputs, an **Apply Counterexample** action that applies `failingInputs` as `setLiteral` edits (lossless, Spec 01 §4) to the live workbook so the failing lineage recomputes and trips the assertion, the lineage, and actions to copy the replay link, download the replay JSON, and show the lineage in X-Ray.
+1. THE SYSTEM SHALL let the user start (Exorcise Model) and stop an Exorcist session, and SHALL show the execution mode (In-Process fast-check or Batched WASM), the seed, runs, scenarios evaluated, shrink rounds, elapsed time, Tier 1 invariant status, Tier 2 assertion status, and the verdict.
+2. WHEN the verdict is `violated`, THE SYSTEM SHALL show the violated assertion (the expected rule), the violated cell, the observed value for Tier 2 or the invariant detail for Tier 1, the failing inputs, an **Apply Counterexample** action that applies `failingInputs` as `setLiteral` edits (lossless, Spec 01 §4) to the live workbook so the failing lineage recomputes and trips the assertion, **Reset Base Values**, **Focus in X-Ray**, **Copy Replay Link** (downloading the replay JSON instead above 8,192 characters), **Download Replay JSON**, **Export workbook (.suture.json)**, and **Import Replay JSON**.
 3. WHEN the page loads with a `#replay=v1.` fragment, THE SYSTEM SHALL decode it, open the built-in flagship whose hash matches `workbookHash`, or ask the user to open the matching `.suture.json`, and then run the replay.
 4. WHEN a replay finishes, THE SYSTEM SHALL show whether it was exact or direct, and highlight the lineage in X-Ray.
 5. IF the document changes during a session, THEN THE SYSTEM SHALL label the session's verdict as stale.
@@ -134,5 +138,7 @@ It uses these types unchanged:
 
 #### Acceptance Criteria
 1. THE SYSTEM SHALL take every color from the steering design tokens, and SHALL contain no hard-coded hex colors in components.
-2. THE SYSTEM SHALL include a CI check that fails when UI copy, docs, comments, or identifiers contain a banned third-party spreadsheet product name, matching against SHA-256 hashes of the banned terms so that the terms themselves never appear in the repository.
+2. THE SYSTEM SHALL include a CI check that fails when UI copy, docs, comments, or identifiers contain a banned third-party spreadsheet product name, matching against SHA-256 hashes of the banned terms so that the terms themselves never appear in the repository, and SHALL apply the same check to the rendered DOM.
 3. THE SYSTEM SHALL meet WCAG AA contrast for body text, and SHALL make every action reachable by keyboard.
+4. WHILE the viewport is narrower than 768 px, THE SYSTEM SHALL lay out without horizontal page overflow, keep Exorcise Model reachable, and show a banner that desktop is optimal.
+5. THE SYSTEM SHALL serve hashed static assets as immutable for one year and SHALL NOT install a service worker, so COOP/COEP headers and deploys are never affected by a cached app shell.

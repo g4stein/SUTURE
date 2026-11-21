@@ -12,7 +12,17 @@ The **Exorcist** is a property-based fuzzer built on [fast-check](https://fast-c
 
 No data leaves your machine. There is no application server, no remote execution, and no telemetry endpoint.
 
-> **Status:** Phase 3 has landed: the engine, workers, ingest, both flagship workbooks, and the test gate. The current UI is a temporary verification view (workbook picker, cell list, file import, Exorcist panel, telemetry). The virtualized grid, inspector, and X-Ray lineage overlay are Phase 4 (`.kiro/specs/04-xray-ui-and-workbooks/tasks.md`).
+> **Status:** Phase 4 has landed: the production UI. It has a virtualized multi-sheet grid, the X-Ray lineage overlay with a crimson fracture view, and the Exorcist Audit Studio. Open items are tracked in `.kiro/specs/04-xray-ui-and-workbooks/tasks.md`; the main one is a 111 ms main-thread task when one edit dirties 20,000 formulas, which needs a scheduler change in core.
+
+## Using Suture
+
+- **Pick a workbook** in the command bar: *SaaS Cash Runway*, *100k-Row E-Commerce Margin Audit*, or *Blank Workbook* (`?workbook=blank` opens it directly). The readiness pill shows each engine honestly: `Grid: Ready | DuckDB: Lazy | Python/NumPy: Lazy`, then `Loading` and `Ready`. Click it for telemetry: `crossOriginIsolated`, the SQL validator, cold boot per engine, first and warm evaluation, and dataset row counts.
+- **Edit like a spreadsheet.** Type on a cell to edit it. Enter, Tab, the arrow keys, Page Up/Down, and Ctrl/Cmd+Home navigate, and Delete clears. The name box jumps to any `Sheet!A1`. `=SQL(…)` and `=PY(…)` drafts open a multi-line editor in the formula bar, where Shift+Enter inserts a newline. Cells carry `FX` / `SQL` / `PY` chips. A table result shows as a `100,000 × 10 — inspect` badge that opens the first 100 rows in the preview drawer.
+- **X-Ray** (Alt+X, or the toolbar button) draws a thread from each precedent to its dependent. Threads are colored by the dependent's engine (SQL cyan dashed, Python amber dotted, formula emerald solid) and dim everything outside the focus. Links to other sheets appear as portal badges at the grid edge.
+- **Exorcise Model** fuzzes the declared inputs through every engine. On a violation, X-Ray jumps to the failing cell and draws the lineage from the shrunk input through SQL, Python, and formulas in pulsing crimson. Callouts show each step's value, and a lineage strip lets you jump between sheets. The Audit Studio shows the Tier 1 invariants, the Tier 2 assertions, the minimal failing inputs, and the actions: **Apply Counterexample**, **Reset Base Values**, **Focus in X-Ray**, **Copy Replay Link**, **Download / Import Replay JSON**, and **Export workbook (.suture.json)**.
+- **Add your own checks** in *Assertions & Domains*. You can use all 9 assertion kinds (`≥ ≤ > <`, `between`, `not error`, `finite`, `not null`, `monotonic with`), with constant or cell operands, and float or integer fuzz domains on input cells.
+- **Bring your own data**: drop `.csv`, `.parquet`, `.xlsx`, `.suture.json`, or a replay `.json` anywhere on the page. Files are parsed locally and never uploaded. Python that arrives in an imported file stays blocked behind a trust banner until you trust it.
+- Screens narrower than 768 px get a stacked layout with the studio as a bottom sheet.
 
 ## Flagship workbooks
 
@@ -33,6 +43,8 @@ packages/
           parser + printer, 30-function registry, dependency graph, time-sliced scheduler,
           CellValue contract, engine ports, Exorcist (search → shrink → simplify → confirm → lineage)
   web/    Vite + React + Tailwind
+          AppStore (external store) · virtualized grid · formula bar · X-Ray overlay
+          Exorcist Audit Studio · readiness pill · drop overlay
           EngineHost + PortClient (main thread)
           workers: DuckDB-WASM · Pyodide + NumPy · ingest (exceljs) · Exorcist
 ```
@@ -44,6 +56,8 @@ packages/
 - **Safe SQL.** User SQL is one `SELECT` over registered tables, checked by DuckDB's own AST serializer, with a stricter lexical guard as fallback. File and URL reads, DDL, and external readers are rejected.
 - **Bring your own data.** `.csv`, `.parquet`, and `.xlsx` files are parsed locally. The XLSX reader (exceljs) lives only in the lazily loaded ingest worker chunk.
 - **Honest telemetry.** Cold boot per engine, first evaluation (which may include boot), and warm DAG evaluation are reported separately.
+- **No main-thread jank.** The grid renders only the visible cells plus 4 rows and 2 columns of overscan, across 1,048,576 × 16,384 cells. X-Ray geometry is recomputed only when the window, layout, graph, selection, or lineage changes. The end-to-end tests fail on any main-thread task over 50 ms while scrolling, typing, or rendering X-Ray.
+- **Small main bundle.** The main JavaScript is 193.0 kB gzip, against a 350 KB budget. exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
 
 The design is specified in `.kiro/specs/` (requirements, design, and tasks for each of the four specs), and the binding rules are in `.kiro/steering/`.
 
@@ -60,7 +74,7 @@ pnpm typecheck        # strict TypeScript across the workspace
 pnpm run licenses     # dependency license audit
 ```
 
-Playwright end-to-end tests (flagships, ingest, slice, worker hardening):
+Playwright end-to-end tests: five UI journeys (flagship discovery and replay, the 100k-row audit across sheets, CSV drag-and-drop with live SQL and Python, XLSX with a custom assertion and the Python trust gate, a 390×844 viewport with a DOM trademark scan), plus the flagship, ingest, and worker-hardening specs:
 
 ```bash
 pnpm --filter @suture/web exec playwright install --with-deps chromium
@@ -102,5 +116,6 @@ The lexer matched error literals with a greedy pattern, so `#N/A/FALSE` became o
 - A conformance table, then a differential property against an independent formula engine, caught `MOD` taking the wrong sign: `MOD(1, -3)` must be `-2`. Suture's `MOD` is now a native kernel.
 - A real-engine ingest test caught exceljs rewriting quoted sheet names in shared formulas (`'Q3 Plan'!B2` became `'Q4 Plan'!B3`).
 - Measuring the Exorcist itself showed that `fc.double` starved the upper part of float domains, hitting Flagship 2's flaw about 20× less often than its share of the domain. Float domains now sample uniformly over values.
+- A CI-only hardening failure turned out to be a race: Pyodide's interrupt check erased a SIGINT written between its read and its reset. The client now re-asserts the signal until the worker settles.
 
 The flagship tests follow the same rule. They contain no input values, counterexamples, or discovery seeds. Each test starts the Exorcist from `crypto.getRandomValues`, and passes only when it finds the expected assertion violation and the replay reproduces it exactly.
