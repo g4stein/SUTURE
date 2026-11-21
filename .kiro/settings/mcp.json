@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "suture": {
+      "command": "node",
+      "args": ["packages/mcp/dist/suture-mcp.mjs"],
+      "disabled": false,
+      "autoApprove": ["suture_list_workbooks", "suture_inspect_lineage"],
+      "disabledTools": []
+    }
+  }
+}

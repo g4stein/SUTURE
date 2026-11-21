@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @suture/web dev",
-    "build": "pnpm -r --filter @suture/web build",
+    "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @suture/web test:e2e",
