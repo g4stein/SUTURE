@@ -47,8 +47,8 @@ describe('vertical-slice functions', () => {
     expect(val(e, 'A8')).toBe(-3);
     expect(roundDecimal(123.456, -1)).toBe(120);
   });
-  it('unknown functions are #NAME? (including IFNA/ISERR/ISNA/ERROR.TYPE and the 23 Phase-3 functions)', async () => {
-    const e = await build({ A1: '=IFNA(1,2)', A2: '=ISERR(1)', A3: '=ISNA(1)', A4: '=ERROR.TYPE(1)', A5: '=VLOOKUP(1,B1:C2,2)', A6: '=XLOOKUP(1)' });
+  it('functions outside the 30 are #NAME? (including IFNA/ISERR/ISNA/ERROR.TYPE)', async () => {
+    const e = await build({ A1: '=IFNA(1,2)', A2: '=ISERR(1)', A3: '=ISNA(1)', A4: '=ERROR.TYPE(1)', A5: '=SUMPRODUCT(1,2)', A6: '=XLOOKUP(1)' });
     for (const a of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) expect(val(e, a)).toMatchObject({ kind: 'error', code: '#NAME?' });
   });
   it('IF short-circuits; IFERROR / ISERROR are the only interceptors', async () => {
