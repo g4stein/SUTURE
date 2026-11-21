@@ -3,6 +3,7 @@ import type { AppStore } from './store.ts';
 import { useSnapshot } from './useSnapshot.ts';
 import { TopBar } from '../chrome/TopBar.tsx';
 import { NarrowBanner, ReplayPrompt, Toasts, TrustBanner } from '../chrome/Banners.tsx';
+import { DropOverlay } from '../chrome/DropOverlay.tsx';
 import { FormulaBar } from '../grid/FormulaBar.tsx';
 import { Grid } from '../grid/Grid.tsx';
 import { SheetTabs } from '../grid/SheetTabs.tsx';
@@ -56,6 +57,7 @@ export function App({ store }: { readonly store: AppStore }): ReactNode {
         </main>
         <RightPanel snap={snap} store={store} />
       </div>
+      <DropOverlay store={store} />
       <Toasts snap={snap} store={store} />
     </div>
   );
