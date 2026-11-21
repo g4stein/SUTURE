@@ -7,6 +7,9 @@ packages:
 autoInstallPeers: false
 overrides:
   vite: 7.3.8
+  # exceljs -> unzipper -> binary -> buffers@0.1.1 declares no license at all. unzipper is only used by exceljs's Node
+  # streaming reader; Suture uses exceljs's browser build (jszip path) inside ingest.worker.ts, so the subtree is removed.
+  unzipper: "-"
 
 # esbuild (MIT) verifies its platform binary in a postinstall script.
 allowBuilds:

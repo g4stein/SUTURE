@@ -1,8 +1,10 @@
-import { isHostEvent, PROTOCOL_VERSION, type ControlMessage, type EngineName, type EngineStatus } from './protocol.ts';
+import type { DatasetMeta, TableRef } from '@suture/core';
+import { isHostEvent, PROTOCOL_VERSION, type ControlMessage, type EngineName, type EngineStatus, type RegisterDatasetPayload, type XlsxIngestResult } from './protocol.ts';
 import { DEGRADED_REASON, isIsolated, type IsolationInfo } from './isolation.ts';
 import { PortClient, type RespawnCause } from './portClient.ts';
 
 export interface Telemetry {
+  /** Cold boot per engine: worker start → engine ready (WASM download + compile + init). */
   readonly duckdbInitMs: number | null;
   readonly pyodideInitMs: number | null;
   readonly validator: 'ast' | 'lexical' | null;
@@ -10,9 +12,22 @@ export interface Telemetry {
   readonly duckdbVersion: string | null;
   readonly pyodideVersion: string | null;
   readonly numpyVersion: string | null;
+  readonly respawns: Readonly<Record<EngineName, number>>;
 }
 
 export type PortReplaced = (engine: EngineName, portId: number, port: MessagePort, runningRequestId: number | null, cause: RespawnCause, reason: string) => void;
+
+export type WorkerKindName = EngineName | 'ingest';
+export type WorkerFactory = (kind: WorkerKindName) => Worker;
+
+/** Production workers. Every one is a top-level dedicated worker (zero nested workers). */
+export const defaultWorkers: WorkerFactory = (kind) => {
+  switch (kind) {
+    case 'duckdb': return new Worker(new URL('./duckdb.worker.ts', import.meta.url), { type: 'module', name: 'suture-duckdb' });
+    case 'pyodide': return new Worker(new URL('./pyodide.worker.ts', import.meta.url), { type: 'module', name: 'suture-pyodide' });
+    case 'ingest': return new Worker(new URL('./ingest.worker.ts', import.meta.url), { type: 'module', name: 'suture-ingest' });
+  }
+};
 
 interface Slot {
   worker: Worker | null;
@@ -26,24 +41,39 @@ interface Slot {
 }
 
 const INIT_DEADLINE_MS = 120_000;
+const INGEST_DEADLINE_MS = 120_000;
 const CRASH_WINDOW_MS = 60_000;
 const MAX_CRASHES = 3;
 
+export interface RegisteredDataset {
+  readonly meta: DatasetMeta;
+  readonly preview: TableRef;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice().buffer));
+  return [...d].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
 /**
- * Owns every engine Worker (Spec 02 §7). All workers are top-level dedicated workers created here on the main thread;
- * no worker creates another worker (steering architecture-and-isolation.md §2).
+ * Owns every Worker (Spec 02 §7). All workers are top-level dedicated workers created here on the main thread; no worker
+ * creates another worker (steering architecture-and-isolation.md §2).
  */
 export class EngineHost {
   private readonly slots: Record<EngineName, Slot>;
   private readonly listeners = new Set<() => void>();
   private readonly portListeners = new Set<PortReplaced>();
   private readonly control: Record<EngineName, SharedArrayBuffer | null>;
+  /** Source bytes of every registered dataset, retained so a respawned DuckDB worker can be restored (Req 5.7, 9.3). */
+  private readonly retained: RegisterDatasetPayload[] = [];
+  private ingest: { worker: Worker; client: PortClient } | null = null;
   private nextPortId = 1;
   private telemetryState: Telemetry = {
     duckdbInitMs: null, pyodideInitMs: null, validator: null, duckdbBundle: null, duckdbVersion: null, pyodideVersion: null, numpyVersion: null,
+    respawns: { duckdb: 0, pyodide: 0 },
   };
 
-  constructor(readonly isolation: IsolationInfo) {
+  constructor(readonly isolation: IsolationInfo, private readonly workers: WorkerFactory = defaultWorkers) {
     const slot = (engine: EngineName): Slot => ({
       worker: null, main: null, ready: null, running: new Map(), external: new Set(), crashes: [],
       status: { engine, state: 'notLoaded', progress: null, reason: null, crashCount: 0 },
@@ -65,6 +95,10 @@ export class EngineHost {
     return this.control[engine];
   }
 
+  datasets(): ReadonlyArray<string> {
+    return this.retained.map((d) => d.name);
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -75,15 +109,19 @@ export class EngineHost {
     return () => this.portListeners.delete(listener);
   }
 
+  private notify(): void {
+    for (const l of this.listeners) l();
+  }
+
   private setStatus(engine: EngineName, patch: Partial<EngineStatus>): void {
     const s = this.slots[engine];
     s.status = { ...s.status, ...patch, crashCount: s.crashes.length };
-    for (const l of this.listeners) l();
+    this.notify();
   }
 
   private patchTelemetry(patch: Partial<Telemetry>): void {
     this.telemetryState = { ...this.telemetryState, ...patch };
-    for (const l of this.listeners) l();
+    this.notify();
   }
 
   /** The main thread's own client; starts the engine on first use (lazy, Spec 02 Req 1.4). */
@@ -105,10 +143,7 @@ export class EngineHost {
   private attach(engine: EngineName, portId: number): MessagePort {
     const w = this.slots[engine].worker;
     if (w === null) throw new Error(`${engine} worker is not running`);
-    const ch = new MessageChannel();
-    const msg: ControlMessage = { protocol: PROTOCOL_VERSION, kind: 'attachPort', portId, role: 'client', port: ch.port1 };
-    w.postMessage(msg, [ch.port1]);
-    return ch.port2;
+    return attachTo(w, portId);
   }
 
   private wirePeers(): void {
@@ -122,19 +157,18 @@ export class EngineHost {
     p.postMessage(b, [ch.port2]);
   }
 
-  private createWorker(engine: EngineName): Worker {
-    return engine === 'duckdb'
-      ? new Worker(new URL('./duckdb.worker.ts', import.meta.url), { type: 'module', name: 'suture-duckdb' })
-      : new Worker(new URL('./pyodide.worker.ts', import.meta.url), { type: 'module', name: 'suture-pyodide' });
-  }
-
   private async spawn(engine: EngineName, replacing: { readonly running: Map<number, number>; readonly cause: RespawnCause; readonly reason: string } | null): Promise<PortClient> {
     const s = this.slots[engine];
     this.setStatus(engine, { state: 'loading', progress: null, reason: null });
-    const worker = this.createWorker(engine);
+    // A signal written for the job that forced this respawn must not reach the replacement: Pyodide would raise
+    // KeyboardInterrupt inside its own initialization (found by the e2e escalation test).
+    const ctl = this.control[engine];
+    if (ctl !== null) new Int32Array(ctl).fill(0);
+    const worker = this.workers(engine);
     s.worker = worker;
     s.running = new Map();
     worker.addEventListener('message', (e: MessageEvent<unknown>) => {
+      if (s.worker !== worker) return;
       const m = e.data;
       if (!isHostEvent(m)) return;
       if (m.kind === 'jobStarted') s.running.set(m.portId, m.requestId);
@@ -143,7 +177,7 @@ export class EngineHost {
     });
     worker.addEventListener('error', (e: ErrorEvent) => {
       e.preventDefault();
-      this.crash(engine, e.message || 'uncaught error in worker');
+      if (s.worker === worker) this.crash(engine, e.message || 'uncaught error in worker');
     });
     worker.addEventListener('messageerror', () => undefined); // handled as protocolError on client ports (Req 9.7)
 
@@ -162,12 +196,6 @@ export class EngineHost {
     } else {
       main.replacePort(port, replacing.running.get(mainPortId) ?? null, replacing.cause, replacing.reason);
     }
-    if (replacing !== null) {
-      for (const portId of s.external) {
-        const np = this.attach(engine, portId);
-        for (const l of this.portListeners) l(engine, portId, np, replacing.running.get(portId) ?? null, replacing.cause, replacing.reason);
-      }
-    }
     this.wirePeers();
 
     const t0 = performance.now();
@@ -178,8 +206,25 @@ export class EngineHost {
     if (init.kind === 'duckdb.ready') this.patchTelemetry({ duckdbInitMs: ms, validator: init.validator, duckdbBundle: init.bundle, duckdbVersion: init.duckdbVersion });
     else if (init.kind === 'py.ready') this.patchTelemetry({ pyodideInitMs: ms, pyodideVersion: init.pyodideVersion, numpyVersion: init.numpyVersion });
     else {
-      this.setStatus(engine, { state: 'failed', progress: null, reason: init.kind === 'failed' ? init.message : `initialization returned ${init.kind}` });
+      const reason = init.kind === 'failed' ? init.message : `initialization returned ${init.kind}`;
+      this.setStatus(engine, { state: 'failed', progress: null, reason });
+      main.failAll(`${engine} failed to initialize: ${reason}`); // held requests resolve as #SQL!/#PY!, never hang
+      s.ready = null;
       throw new Error(`${engine} failed to initialize`);
+    }
+    if (replacing !== null) {
+      // Restore engine state before any held request runs (Spec 02 Req 9.3): datasets in their original order.
+      if (engine === 'duckdb') {
+        for (const d of this.retained) {
+          await main.request('duckdb.registerDataset', { ...d, bytes: d.bytes.slice() }, { priority: 'interactive', deadlineMs: INIT_DEADLINE_MS, signal: null, generation: null });
+        }
+      }
+      main.resume();
+      for (const portId of s.external) {
+        const np = this.attach(engine, portId);
+        for (const l of this.portListeners) l(engine, portId, np, replacing.running.get(portId) ?? null, replacing.cause, replacing.reason);
+      }
+      this.patchTelemetry({ respawns: { ...this.telemetryState.respawns, [engine]: this.telemetryState.respawns[engine] + 1 } });
     }
     const isolated = isIsolated(this.isolation);
     this.setStatus(engine, { state: isolated ? 'ready' : 'degraded', progress: null, reason: isolated ? null : DEGRADED_REASON });
@@ -224,4 +269,43 @@ export class EngineHost {
     s.ready = this.spawn(engine, null);
     await s.ready;
   }
+
+  /** Registers an uploaded file (or an Arrow table from a spreadsheet import) as a DuckDB dataset. Bytes never leave the machine. */
+  async registerDataset(file: { readonly name: string; readonly bytes: Uint8Array; readonly sourceFormat: 'csv' | 'parquet' | 'xlsx'; readonly encoding: 'csv' | 'parquet' | 'arrow' }): Promise<RegisteredDataset | { readonly error: string }> {
+    const payload: RegisterDatasetPayload = { name: file.name, sourceFormat: file.sourceFormat, encoding: file.encoding, bytes: file.bytes.slice(), sha256: await sha256Hex(file.bytes) };
+    const c = await this.client('duckdb');
+    const r = await c.request('duckdb.registerDataset', { ...payload, bytes: payload.bytes.slice() }, { priority: 'interactive', deadlineMs: INGEST_DEADLINE_MS, signal: null, generation: null });
+    if (r.kind !== 'dataset') return { error: r.kind === 'failed' ? r.message : `registration returned ${r.kind}` };
+    const i = this.retained.findIndex((d) => d.name === payload.name);
+    if (i >= 0) this.retained.splice(i, 1);
+    this.retained.push(payload);
+    this.notify();
+    return { meta: r.meta, preview: r.preview };
+  }
+
+  /** Parses a spreadsheet file in the lazily created ingest worker (the only chunk that contains exceljs). */
+  async ingestXlsx(fileName: string, bytes: Uint8Array): Promise<XlsxIngestResult | { readonly error: string }> {
+    if (this.ingest === null) {
+      const worker = this.workers('ingest');
+      const client = new PortClient(attachTo(worker, 0), { portId: 0, engine: 'duckdb', isolation: this.isolation, control: null, onRespawnNeeded: () => undefined });
+      worker.addEventListener('error', (e: ErrorEvent) => {
+        e.preventDefault();
+        client.failAll(e.message || 'ingest worker crashed');
+        worker.terminate();
+        if (this.ingest?.worker === worker) this.ingest = null;
+      });
+      this.ingest = { worker, client };
+    }
+    const copy = bytes.slice();
+    const r = await this.ingest.client.request('ingest.xlsx', { fileName, bytes: copy }, { priority: 'interactive', deadlineMs: INGEST_DEADLINE_MS, signal: null, generation: null, transfer: [copy.buffer] }).catch((e: unknown) => ({ kind: 'failed' as const, message: e instanceof Error ? e.message : String(e) }));
+    if (r.kind === 'xlsx') return r.workbook;
+    return { error: r.kind === 'failed' ? r.message : `ingest returned ${r.kind}` };
+  }
+}
+
+function attachTo(w: Worker, portId: number): MessagePort {
+  const ch = new MessageChannel();
+  const msg: ControlMessage = { protocol: PROTOCOL_VERSION, kind: 'attachPort', portId, role: 'client', port: ch.port1 };
+  w.postMessage(msg, [ch.port1]);
+  return ch.port2;
 }

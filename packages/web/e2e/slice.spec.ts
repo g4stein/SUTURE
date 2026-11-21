@@ -1,15 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { watchConsole } from './console.ts';
 
-function watchConsole(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-  return errors;
-}
-
-async function states(page: Page, testid: string): Promise<string> {
+async function state(page: Page, testid: string): Promise<string> {
   return (await page.getByTestId(testid).getAttribute('data-state')) ?? '';
 }
+
+const v = (page: Page, key: string) => page.getByTestId(`value-${key}`);
 
 test('vertical slice: honest readiness, live A1 → B1 → D1, Exorcist discovers + shrinks + replays, Apply trips D1', async ({ page }) => {
   const errors = watchConsole(page);
@@ -19,17 +15,15 @@ test('vertical slice: honest readiness, live A1 → B1 → D1, Exorcist discover
 
   // 1. The grid renders immediately while engines report honest states.
   await expect(page.getByTestId('pill-grid')).toHaveText('Grid Ready');
-  await expect(page.getByTestId('row-C1')).toBeVisible();
+  await expect(page.getByTestId('row-Slice!C1')).toBeVisible();
   const gridMs = Date.now() - t0;
-  const pyAtFirstPaint = await page.getByTestId('pill-pyodide').textContent();
-  expect(pyAtFirstPaint).toMatch(/Python\/NumPy (Lazy|Loading)/);
+  expect(await page.getByTestId('pill-pyodide').textContent()).toMatch(/Python\/NumPy (Lazy|Loading)/);
   await expect(page.getByTestId('tm-coi')).toHaveText('true');
 
-  // Track every state each engine passes through until both are ready.
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
     for (const id of Object.keys(seen)) {
-      const s = await states(page, id);
+      const s = await state(page, id);
       const list = seen[id] as string[];
       if (list[list.length - 1] !== s) list.push(s);
     }
@@ -39,32 +33,29 @@ test('vertical slice: honest readiness, live A1 → B1 → D1, Exorcist discover
   console.log(`[e2e] grid visible after ${gridMs} ms; DuckDB states ${seen['pill-duckdb']?.join(' → ')}; Pyodide states ${seen['pill-pyodide']?.join(' → ')}`);
   expect(seen['pill-duckdb']).toContain('ready');
   expect(seen['pill-pyodide']).toContain('ready');
-  // "Lazy" (notLoaded) may only appear before "loading"; never after.
-  for (const list of Object.values(seen)) {
-    const firstLoading = list.indexOf('loading');
-    expect(list.slice(firstLoading + 1)).not.toContain('notLoaded');
-  }
+  for (const list of Object.values(seen)) expect(list.slice(list.indexOf('loading') + 1)).not.toContain('notLoaded');
 
   // 2. A1 → B1 → D1 executes live.
-  await expect(page.getByTestId('value-E1')).toHaveText('table 10,000×5');
-  await expect(page.getByTestId('value-A1')).toHaveText('table 12×3');
-  await expect(page.getByTestId('value-B1')).toHaveText(/^\d+(\.\d+)?$/);
-  await expect(page.getByTestId('value-D1')).toHaveText(/^\d+(\.\d+)?$/);
-  const burn = Number(await page.getByTestId('value-B1').textContent());
-  const runway = Number(await page.getByTestId('value-D1').textContent());
+  await expect(v(page, 'Slice!E1')).toHaveText('table 10,000×5');
+  await expect(v(page, 'Slice!A1')).toHaveText('table 12×3');
+  await expect(v(page, 'Slice!B1')).toHaveText(/^\d+(\.\d+)?$/);
+  await expect(v(page, 'Slice!D1')).toHaveText(/^\d+(\.\d+)?$/);
+  const burn = Number(await v(page, 'Slice!B1').textContent());
+  const runway = Number(await v(page, 'Slice!D1').textContent());
   expect(runway).toBeCloseTo(250000 / burn, 6);
   for (const id of ['runway-finite', 'runway-defined', 'runway-non-negative']) await expect(page.getByTestId(`assert-${id}`)).toHaveAttribute('data-ok', 'true');
-  const validator = await page.getByTestId('tm-validator').textContent();
-  const versions = await page.getByTestId('tm-versions').textContent();
-  console.log(`[e2e] B1 projected burn ${burn}; D1 runway ${runway}; validator ${validator}; DuckDB init ${await page.getByTestId('tm-duckdb-ms').textContent()}; Pyodide init ${await page.getByTestId('tm-pyodide-ms').textContent()}; ${versions}`);
+  await expect(page.getByTestId('tm-first-eval-ms')).toHaveText(/\d+ ms/);
+  console.log(`[e2e] B1 ${burn}; D1 ${runway}; validator ${await page.getByTestId('tm-validator').textContent()}; cold boot DuckDB ${await page.getByTestId('tm-duckdb-ms').textContent()}, Pyodide ${await page.getByTestId('tm-pyodide-ms').textContent()}; first eval ${await page.getByTestId('tm-first-eval-ms').textContent()}`);
 
-  // A live edit recomputes the whole chain (C2 → A1 → B1 → D1).
-  await page.getByTestId('input-C2').fill('1.5');
-  await page.getByTestId('input-C2').press('Enter');
-  await expect(page.getByTestId('value-B1')).not.toHaveText(String(burn));
-  await page.getByTestId('input-C2').fill('1');
-  await page.getByTestId('input-C2').press('Enter');
-  await expect(page.getByTestId('value-B1')).toHaveText(String(burn));
+  // A live edit recomputes the whole chain (C2 → A1 → B1 → D1) — a warm evaluation, no engine boot.
+  await page.getByTestId('input-Slice!C2').fill('1.5');
+  await page.getByTestId('input-Slice!C2').press('Enter');
+  await expect(v(page, 'Slice!B1')).not.toHaveText(String(burn));
+  await page.getByTestId('input-Slice!C2').fill('1');
+  await page.getByTestId('input-Slice!C2').press('Enter');
+  await expect(v(page, 'Slice!B1')).toHaveText(String(burn));
+  await expect(page.getByTestId('tm-warm-eval-ms')).toHaveText(/\d+ ms/);
+  console.log(`[e2e] warm DAG eval (C2 edit → A1 → B1 → D1): ${await page.getByTestId('tm-warm-eval-ms').textContent()}`);
 
   // 3. Exorcist discovers and shrinks a real counterexample across the batched chain.
   await page.getByTestId('run-exorcist').click();
@@ -73,15 +64,13 @@ test('vertical slice: honest readiness, live A1 → B1 → D1, Exorcist discover
   expect(violated).toMatch(/^runway-(finite|defined|non-negative):/);
   await expect(page.getByTestId('verdict-mode')).toHaveText('batched');
   const inputs = (await page.getByTestId('failing-inputs').textContent()) ?? '';
-  console.log(`[e2e] Exorcist: ${await page.getByTestId('exorcist-status').textContent()} — ${violated} — shrunk ${inputs} — seed/path ${await page.getByTestId('verdict-seed').textContent()}`);
-  expect(inputs).toMatch(/C1 = .+, C2 = .+/);
+  console.log(`[e2e] slice Exorcist: ${await page.getByTestId('exorcist-status').textContent()} — ${violated} — shrunk ${inputs}`);
+  expect(inputs).toMatch(/Slice!C1 = .+, Slice!C2 = .+/);
 
   // 4. "Apply Counterexample" recomputes A1 → B1 → D1 live and trips the exact assertion.
   await page.getByTestId('apply-counterexample').click();
-  const tripped = violated.split(':')[0] ?? '';
-  await expect(page.getByTestId(`assert-${tripped}`)).toHaveAttribute('data-ok', 'false');
+  await expect(page.getByTestId(`assert-${violated.split(':')[0] ?? ''}`)).toHaveAttribute('data-ok', 'false');
   await expect(page.getByTestId('lineage')).toHaveAttribute('data-failing', 'true');
-  console.log(`[e2e] after Apply: B1 = ${await page.getByTestId('value-B1').textContent()}, D1 = ${await page.getByTestId('value-D1').textContent()}`);
 
   // 5. The replay link reproduces the exact counterexample in a fresh page.
   const href = (await page.getByTestId('replay-link').getAttribute('href')) ?? '';

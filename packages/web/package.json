@@ -9,12 +9,14 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
     "test": "vitest --run",
-    "test:e2e": "playwright test"
+    "test:e2e": "vite build && vite build --config vite.e2e.config.ts && playwright test",
+    "build:e2e": "vite build --config vite.e2e.config.ts"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
     "@suture/core": "workspace:*",
     "apache-arrow": "17.0.0",
+    "exceljs": "4.4.0",
     "pyodide": "314.0.8",
     "react": "19.3.1",
     "react-dom": "19.3.1"

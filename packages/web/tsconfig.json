@@ -17,6 +17,7 @@
     }
   },
   "include": [
+    "e2e/harness",
     "src",
     "test"
   ]

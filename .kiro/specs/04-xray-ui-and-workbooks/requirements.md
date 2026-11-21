@@ -98,22 +98,25 @@ It uses these types unchanged:
 **User Story:** As a founder, I want a realistic runway model that shows how a base-case spreadsheet hides a cliff.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL ship the document `saas-runway.suture.json` with the input, model, fuzz-domain, and assertion layout in `design.md` §7.1.
+1. THE SYSTEM SHALL ship the built-in document `workbooks/saasRunway.ts` with the input, cohort SQL, model, fuzz-domain, and assertion layout in `design.md` §7.1.
 2. WHEN the document is opened, THE SYSTEM SHALL show base-case values in which every assertion holds.
-3. THE SYSTEM SHALL compute runway as cash divided by net burn, the realistic modeling flaw this workbook contains, so that net burn at or below zero produces `#DIV/0!` or a negative runway.
-4. THE SYSTEM SHALL run this workbook's Exorcist session in in-process mode.
+3. THE SYSTEM SHALL compute runway as cash divided by the projected net burn, the realistic modeling flaw this workbook contains, so that a projected net burn at or below zero produces `#DIV/0!` or a negative runway.
+4. THE SYSTEM SHALL compute the 12-month operating trajectory in `=SQL()` over a cached cohort table, project net burn with a NumPy least-squares fit in `=PY()`, and compute runway with a formula, and SHALL run this workbook's Exorcist session in batched mode with the assertions `runway-non-negative` (`gte` 0), `runway-defined` (`notError`), and `runway-finite` (`finite`).
+5. THE SYSTEM SHALL let the Exorcist discover this flaw from a fresh seed in at most 3 s in the browser on the CI runner class.
 
 ### Requirement 9: Flagship workbook 2, 100,000-Row E-Commerce Margin Audit
 
 **User Story:** As a finance lead, I want an end-to-end cross-engine audit that finds a discount-stacking bug base cases hide.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL ship the document `ecommerce-margin.suture.json` with the sheets, SQL, Python, formulas, fuzz domains, and assertions in `design.md` §7.2.
+1. THE SYSTEM SHALL ship the built-in document `workbooks/ecommerceMargin.ts` with the sheets `Params, Orders, Segments, Cohorts, Model, Margins` and the SQL, Python, formulas, fuzz domains, and assertions in `design.md` §7.2.
 2. THE SYSTEM SHALL synthesize the 100,000-row order dataset inside DuckDB from `range(100000)` and the deterministic `suture_u01` / `suture_normal` macros, so that every load produces bit-identical data.
-3. THE SYSTEM SHALL compute segment margins in `=SQL()`, fit an OLS margin model and count residual anomalies in `=PY()` with NumPy, and derive the executive KPIs with `SUMIFS`, `SUM`, `INDEX`, and `IF`.
-4. THE SYSTEM SHALL apply the discount cap to each discount separately rather than to the stacked total, the realistic implementation flaw this workbook contains.
-5. WHEN the document is opened, THE SYSTEM SHALL show base-case values in which every assertion holds.
-6. THE SYSTEM SHALL run this workbook's Exorcist session in batched mode.
+3. THE SYSTEM SHALL synthesize the orders once and aggregate them once into a tier table upstream of `Params`, so that no fuzz scenario re-scans the 100,000 rows.
+4. THE SYSTEM SHALL compute segment margins in `=SQL()`, pivot them and fit a weighted OLS margin model with anomaly count in `=PY()` with NumPy, and derive the executive KPIs with `SUMIFS`, `SUM`, `AVERAGEIF`, `VLOOKUP`, `INDEX`, and `IF`.
+5. THE SYSTEM SHALL apply the discount cap to each discount separately rather than to the stacked total, the realistic implementation flaw this workbook contains.
+6. WHEN the document is opened, THE SYSTEM SHALL show base-case values in which every assertion holds.
+7. THE SYSTEM SHALL run this workbook's Exorcist session in batched mode with the assertions `hardlines-stacked-net-margin` (`gte` 0), `total-margin-not-null` (`notNull`), and `model-projection-finite` (`finite`).
+8. THE SYSTEM SHALL let the Exorcist discover this flaw from a fresh seed in 5–10 s in the browser on the CI runner class. This is a target, not a CI gate: the CI test asserts discovery and exact replay, not duration. Measured values are in `design.md` §7.3.
 
 ### Requirement 10: Genuine bug discovery in CI
 
@@ -122,7 +125,7 @@ It uses these types unchanged:
 #### Acceptance Criteria
 1. THE SYSTEM SHALL include a CI test that, for each flagship, runs an Exorcist session with a fresh random seed, logs the seed, and passes only when the verdict is `violated` on the expected assertion id and the artifact replays as `exact`.
 2. THE SYSTEM SHALL keep failing input values, expected counterexamples, and seeds out of the flagship documents and tests. Tests may assert only assertion ids, verdict kinds, and replay outcomes.
-3. THE SYSTEM SHALL include a deterministic estimation test showing that each flagship's failing region covers at least 1% of its fuzz domain under uniform sampling. At that rate, a run of uniform draws misses the region with probability below 1e-4 for flagship 1 (1,000 runs, 0.99^1000 ≈ 4.3e-5) and below 1e-8 for flagship 2 (2,000 runs, 0.99^2000 ≈ 1.9e-9). fast-check's edge bias replaces some uniform draws with draws near the domain bounds. Both flaws sit at a corner of their domains, so the bias is expected to raise the hit rate. The CI test (10.1) checks the real rate.
+3. THE SYSTEM SHALL include a deterministic estimation test showing that each flagship's failing region covers at least 1% of its fuzz domain under sampling that is uniform over values, using 1,000 samples per flagship. At 1%, a session of 1,000 uniform draws (10 batches of 100) misses the region with probability 0.99^1000 ≈ 4.3e-5. fast-check's edge bias replaces some uniform draws with draws near the domain bounds. Both flaws sit at a corner of their domains, so the bias is expected to raise the hit rate. The CI test (10.1) checks the real rate.
 4. THE SYSTEM SHALL include a control test that applies the corrected formula (`design.md` §7.1 and §7.2) as an edit and shows zero violations of the expected assertion over the same sampled scenarios, proving that the flaw causes the failure.
 
 ### Requirement 11: Branding, trademark hygiene, and accessibility

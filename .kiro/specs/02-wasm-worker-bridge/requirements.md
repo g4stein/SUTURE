@@ -72,10 +72,10 @@ Glossary:
 
 #### Acceptance Criteria
 1. WHEN a `.csv` file is registered, THE SYSTEM SHALL ingest it with `read_csv_auto` into a table named by the sanitized dataset name.
-2. WHEN a `.parquet` file is registered, THE SYSTEM SHALL ingest it with `read_parquet` into a table named by the sanitized dataset name.
+2. WHEN a `.parquet` file is registered, THE SYSTEM SHALL ingest it with `read_parquet` into a table named by the sanitized dataset name, loading the Parquet extension lazily on the first Parquet registration (never at boot, 3 s fetch timeout). IF the extension cannot be loaded, THEN THE SYSTEM SHALL fail only that registration, with a message saying that CSV and spreadsheet imports still work.
 3. WHEN an `.xlsx` file is uploaded, THE SYSTEM SHALL parse it in the ingest worker, convert each sheet to Arrow IPC, and register each as a table with `insertArrowFromIPCStream`.
 4. THE SYSTEM SHALL sanitize dataset names to `^[a-z_][a-z0-9_]{0,62}$` (lowercase, non-alphanumerics replaced by `_`, a leading `_` added before a digit, `_2`, `_3`, … appended on collision).
-5. WHEN registration succeeds, THE SYSTEM SHALL return `DatasetMeta` (Spec 01 §4) with the SHA-256 of the source bytes, the row count, and the schema.
+5. WHEN registration succeeds, THE SYSTEM SHALL return `DatasetMeta` (Spec 01 §4) with the SHA-256 of the source bytes, the row count, and the schema, together with a `TableRef` preview of at most the first 100 rows.
 6. IF registration fails, THEN THE SYSTEM SHALL report the DuckDB error message to the user and SHALL NOT add the dataset.
 7. THE SYSTEM SHALL retain each dataset's source bytes on the main thread for as long as the dataset is registered, so that it can be restored after a worker respawn.
 

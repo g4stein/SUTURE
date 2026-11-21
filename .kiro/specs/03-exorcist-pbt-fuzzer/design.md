@@ -190,13 +190,17 @@ export function runArbitrary(cfg: ExorcistConfig): fc.Arbitrary<RunSample>;
 ```
 
 Domain arbitraries:
-- `float` → `fc.double({ min, max, noNaN: true, noDefaultInfinity: true })`;
+- `float` → uniform over **values**: `fc.integer({ min: 0, max: 0xFFFFFFFF })` mapped to `x = min·(1 − t) + max·t` with `t = k / 0xFFFFFFFF`, clamped to `[min, max]` (`fc.constant(min)` when `min = max`). Changed in Phase 3. `fc.double({ min, max })` is uniform over IEEE-754 bit patterns, so on a domain such as `[0, 0.35]` almost every draw lands near 0 and the upper part of the domain is starved. With it, the Flagship 2 flaw was hit at about 0.36% of runs, against a 7.4% share of the domain. The integer mapping keeps:
+  - deterministic generation and replay from the seed and path;
+  - fast-check's bias toward the integer bounds, so `k = 0` gives exactly `min` and `k = 2³² − 1` gives exactly `max`. No other value, including 0, gets special coverage unless it is a bound;
+  - shrinking toward `k = 0`, which means toward `min`. Decimal simplification (§4.6) then rounds the result.
+  The resolution is 2³² evenly spaced values per domain. `packages/core/src/__tests__/sampler.pbt.test.ts` checks in-domain draws for any finite bounds, exact `min` and `max`, quartile uniformity, coverage of the upper half (47.4% against 6.4% for `fc.double` with bias and 0.08% without), and shrinking toward `min`;
 - `integer` → `fc.integer({ min, max })`;
 - `choice` → `fc.constantFrom(...values)`;
 - `boolean` → `fc.boolean()`.
 
 For each `monotonicWith` assertion, the run also draws a step:
-- for `float`, `fc.double({ min: 0, max: domain.max - domain.min, noNaN: true })` filtered to `> 0`;
+- for `float`, `uniformStep(domain.max − domain.min)`: the same linear mapping as `float` domains, with `k ∈ [1, 0xFFFFFFFF]`, giving a step uniform over `(0, span]` that is never 0 and shrinks toward the smallest step (Phase 3; previously `fc.double`). A zero-width domain gives step 0, and the pair is dropped;
 - for `integer`, `fc.integer({ min: 1, max: domain.max - domain.min })`.
 
 The paired scenario sets `input = min(base[input] + step, domain.max)`. When that equals `base[input]`, the pair is dropped.
@@ -302,7 +306,7 @@ Shrinking:
 ```mermaid
 flowchart TD
   S0["current = generated[i] (value + context)"] --> S1["stream = arb.shrink(current.value, current.context)"]
-  S1 --> S2["take next ≤ batchSize candidates"]
+  S1 --> S2["take the next chunk: 4, 16, 64, then batchSize candidates"]
   S2 --> S3{chunk empty?}
   S3 -- yes --> DONE[stop]
   S3 -- no --> S4["evaluate chunk in one batch"]
@@ -313,6 +317,10 @@ flowchart TD
   S7 -- yes --> S1
   S7 -- no --> DONE
 ```
+
+- **Growing chunks (Phase 3):** within one shrink round, chunk `n` holds `min(batchSize, 4·4ⁿ)` candidates. The first failing candidate is usually early in the stream, so a round rarely pays for a full batch. Candidate indices stay global within the stream, so paths and replay are unchanged.
+- **No probes on shrink or simplification candidates:** cross-engine probes (§4.3) run on every search batch and on confirmation only. Shrinking looks for the same `ViolatedAssertion`, and the confirmed result is still probed.
+- After the last round, the shrunk sample is re-evaluated alone. If it does not fail alone, the runner falls back to the unshrunk sample with an empty shrink path.
 
 Path suffix: both modes append `|<d0>,<d1>,…`, the decimal-simplification digits chosen per fuzz input (§4.6, `0` = unchanged), so replay re-applies simplification without evaluating candidates. Example: `0:0:0|0,0`.
 
@@ -446,3 +454,5 @@ Fixtures live in `packages/core/test/fixtures/exorcist/`.
 - **`reference-fail.suture.json`:** the same shape, with one assertion that fails on a region covering about 5% of the input domain.
 
 Budget: `reference-pass` runs 1,000 runs, and `reference-fail` completes search, shrink, and simplification, each in under 2 s on GitHub Actions `ubuntu-latest` with Node LTS, measured as the median of 5 runs.
+
+Both workbooks are built in code by `packages/core/src/__tests__/benchmark.test.ts` (5 float inputs in `A1:A5` feeding 50 formula cells in 10 layers of 5), not stored as JSON files. Phase 3 measurement in the development sandbox: `reference-pass` median 376 ms, `reference-fail` median 69 ms.

@@ -3,11 +3,18 @@ import {
   type CancellationToken, type CellKey, type CellValue, type EngineBatchOutcome, type EngineOutcome, type PyBatchEvalRequest,
   type PyBinding, type PyEngine, type PyEvalRequest, type SqlBatchEvalRequest, type SqlEngine, type SqlEvalRequest, type SqlTableBinding, type TableRef,
 } from '@suture/core';
-import { DeadlineExceeded, EngineCrashed, signalFromToken, type PortClient } from './portClient.ts';
+import { DeadlineExceeded, EngineCrashed, signalFromToken, type EngineClient } from './portClient.ts';
 import { owned, type Priority, type ResultId, type WirePyBinding, type WireTableBinding, type WorkerResult } from './protocol.ts';
 
 export const DEADLINE_SINGLE_MS = 10_000;
 export const DEADLINE_BATCH_MS = 60_000;
+
+/** Spec 02 Req 3.8 defaults; the e2e hardening harness passes shorter deadlines. */
+export interface BridgeDeadlines {
+  readonly single: number;
+  readonly batch: number;
+}
+const DEFAULT_DEADLINES: BridgeDeadlines = { single: DEADLINE_SINGLE_MS, batch: DEADLINE_BATCH_MS };
 
 /** TableRef identity → DuckDB result id, so cached results are bound without re-sending bytes (Spec 02 Req 6.7). */
 const resultIds = new WeakMap<TableRef, ResultId>();
@@ -75,7 +82,7 @@ function many(r: WorkerResult, n: number, cell: CellKey, engine: 'sql' | 'py'): 
 }
 
 export class SqlBridge implements SqlEngine {
-  constructor(private readonly client: () => Promise<PortClient>, private readonly priority: Priority) {}
+  constructor(private readonly client: () => Promise<EngineClient>, private readonly priority: Priority, private readonly deadlines: BridgeDeadlines = DEFAULT_DEADLINES) {}
 
   async evaluate(req: SqlEvalRequest, token: CancellationToken): Promise<EngineOutcome> {
     try {
@@ -83,7 +90,7 @@ export class SqlBridge implements SqlEngine {
       for (const force of [false, true]) {
         const transfer: Transferable[] = [];
         const r = await c.request('duckdb.query', { cell: req.cell, sql: req.sql, params: req.params, tables: wireTables(req.tables, force, transfer) },
-          { priority: this.priority, deadlineMs: DEADLINE_SINGLE_MS, signal: signalFromToken(token), generation: req.generation, transfer });
+          { priority: this.priority, deadlineMs: this.deadlines.single, signal: signalFromToken(token), generation: req.generation, transfer });
         if (r.kind !== 'missingTables') return one(r, req.cell, 'sql');
       }
       return { kind: 'value', value: makeError('#SQL!', 'bound tables are unavailable', req.cell, 'sql') };
@@ -100,7 +107,7 @@ export class SqlBridge implements SqlEngine {
         const r = await c.request('duckdb.queryBatch', {
           cell: req.cell, sql: req.sql, shared: wireTables(req.shared, force, transfer),
           scenarios: req.scenarios.map((s) => ({ params: s.params, tables: wireTables(s.tables, force, transfer) })),
-        }, { priority: this.priority, deadlineMs: DEADLINE_BATCH_MS, signal: signalFromToken(token), generation: req.generation, transfer });
+        }, { priority: this.priority, deadlineMs: this.deadlines.batch, signal: signalFromToken(token), generation: req.generation, transfer });
         if (r.kind !== 'missingTables') return many(r, req.scenarios.length, req.cell, 'sql');
       }
       return { kind: 'values', values: req.scenarios.map(() => makeError('#SQL!', 'bound tables are unavailable', req.cell, 'sql')) };
@@ -112,7 +119,7 @@ export class SqlBridge implements SqlEngine {
 }
 
 export class PyBridge implements PyEngine {
-  constructor(private readonly client: () => Promise<PortClient>, private readonly priority: Priority) {}
+  constructor(private readonly client: () => Promise<EngineClient>, private readonly priority: Priority, private readonly deadlines: BridgeDeadlines = DEFAULT_DEADLINES) {}
 
   async evaluate(req: PyEvalRequest, token: CancellationToken): Promise<EngineOutcome> {
     try {
@@ -120,7 +127,7 @@ export class PyBridge implements PyEngine {
       for (const force of [false, true]) {
         const transfer: Transferable[] = [];
         const r = await c.request('py.run', { cell: req.cell, code: req.code, vectorized: req.vectorized, seed: req.seed, inputs: wirePy(req.inputs, force, transfer) },
-          { priority: this.priority, deadlineMs: DEADLINE_SINGLE_MS, signal: signalFromToken(token), generation: req.generation, transfer });
+          { priority: this.priority, deadlineMs: this.deadlines.single, signal: signalFromToken(token), generation: req.generation, transfer });
         if (r.kind !== 'missingTables') return one(r, req.cell, 'py');
       }
       return { kind: 'value', value: makeError('#PY!', 'bound tables are unavailable', req.cell, 'py') };
@@ -137,7 +144,7 @@ export class PyBridge implements PyEngine {
         const r = await c.request('py.runBatch', {
           cell: req.cell, code: req.code, vectorized: req.vectorized, seed: req.seed,
           shared: wirePy(req.shared, force, transfer), scenarios: req.scenarios.map((s) => wirePy(s, force, transfer)),
-        }, { priority: this.priority, deadlineMs: DEADLINE_BATCH_MS, signal: signalFromToken(token), generation: req.generation, transfer });
+        }, { priority: this.priority, deadlineMs: this.deadlines.batch, signal: signalFromToken(token), generation: req.generation, transfer });
         if (r.kind !== 'missingTables') return many(r, req.scenarios.length, req.cell, 'py');
       }
       return { kind: 'values', values: req.scenarios.map(() => makeError('#PY!', 'bound tables are unavailable', req.cell, 'py')) };

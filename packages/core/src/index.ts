@@ -8,6 +8,7 @@ export * from './parse/parser.ts';
 export * from './parse/printer.ts';
 export * from './parse/dialect.ts';
 export * from './functions/evaluator.ts';
+export * from './functions/criteria.ts';
 export * from './graph/tarjan.ts';
 export * from './arrow/rangeTable.ts';
 export * from './schedule/engine.ts';

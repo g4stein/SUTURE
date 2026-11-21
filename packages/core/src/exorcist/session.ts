@@ -112,9 +112,39 @@ function subgraphOf(engine: WorkbookEngine, inputs: ReadonlyArray<CellKey>, targ
 
 // ---------------------------------------------------------------- arbitraries
 
+const U32_MAX = 0xffffffff;
+
+/**
+ * Uniform over VALUES in [min, max] (Spec 03 §4.1). fc.double is uniform over IEEE-754 bit patterns, so on a domain such
+ * as [0, 0.35] almost every draw lands within a few ulps of 0 and the upper half of the domain is starved (measured: the
+ * Flagship 2 flaw was hit ~20× less often than its 7.4 % share of the domain). A 32-bit integer mapped linearly keeps
+ * what fast-check gives integers: deterministic generation from the seed, bias toward its bounds (k = 0 → exactly min,
+ * k = 2^32 − 1 → exactly max), and shrinking toward k = 0, i.e. toward min.
+ */
+export function uniformFloat(min: number, max: number): fc.Arbitrary<number> {
+  return min === max ? fc.constant(min) : linearFloat(min, max, 0);
+}
+
+/** k ∈ [kMin, 2^32 − 1] mapped linearly onto [min, max]; k = 0 → exactly min, k = 2^32 − 1 → exactly max. */
+function linearFloat(min: number, max: number, kMin: 0 | 1): fc.Arbitrary<number> {
+  return fc.integer({ min: kMin, max: U32_MAX }).map((k) => {
+    const t = k / U32_MAX;
+    const x = min * (1 - t) + max * t; // lerp form: exact at both ends and never overflows for finite bounds
+    return x < min ? min : x > max ? max : x;
+  });
+}
+
+/**
+ * `monotonicWith` step for a float input: uniform over values in (0, span], by the same mapping as `uniformFloat` with
+ * k ≥ 1 so the step is never 0. Shrinks toward the smallest step. A zero-width domain gives step 0 and the pair is dropped.
+ */
+export function uniformStep(span: number): fc.Arbitrary<number> {
+  return linearFloat(0, span, 1);
+}
+
 function domainArb(d: FuzzDomain): fc.Arbitrary<ScalarValue> {
   switch (d.kind) {
-    case 'float': return fc.double({ min: d.min, max: d.max, noNaN: true, noDefaultInfinity: true });
+    case 'float': return uniformFloat(d.min, d.max);
     case 'integer': return fc.integer({ min: d.min, max: d.max });
     case 'choice': return fc.constantFrom(...d.values);
     case 'boolean': return fc.boolean();
@@ -128,8 +158,7 @@ export function runArbitrary(doc: SutureDocument): fc.Arbitrary<RunSample> {
   const steps = fc.tuple(...monos.map((a) => {
     const d = cfg.inputs.find((i) => i.cell === (a.kind === 'monotonicWith' ? a.input : ''))?.domain;
     if (d?.kind === 'integer') return fc.integer({ min: 1, max: Math.max(1, d.max - d.min) });
-    const span = d?.kind === 'float' ? d.max - d.min : 1;
-    return fc.double({ min: 0, max: span, noNaN: true, noDefaultInfinity: true, minExcluded: true });
+    return uniformStep(d?.kind === 'float' ? d.max - d.min : 1);
   }));
   return fc.tuple(inputs, steps).map(([vals, st]) => ({
     base: cfg.inputs.map((inp, i) => ({ cell: inp.cell, value: vals[i] ?? null })),
@@ -374,7 +403,7 @@ class Session implements ExorcistSession {
     for (let i = 0; i < this.doc.exorcist.inputs.length; i++) {
       const cands = this.simplifyCandidates(cur).filter((c) => c.input === i);
       if (cands.length === 0) continue;
-      const ev = await this.evaluate(cands.map((c) => c.sample), token, true);
+      const ev = await this.evaluate(cands.map((c) => c.sample), token, false);
       for (let j = 0; j < cands.length; j++) {
         const v = this.check(ev, j);
         const c = cands[j];
@@ -533,7 +562,7 @@ class Session implements ExorcistSession {
   }
 
   private async failsAlone(sample: RunSample, token: CancellationToken): Promise<boolean> {
-    const ev = await this.evaluate([sample], token, true);
+    const ev = await this.evaluate([sample], token, false);
     return this.check(ev, 0) !== null;
   }
 
@@ -546,15 +575,19 @@ class Session implements ExorcistSession {
       const stream = this.arb.shrink(cur.value, cur.context)[Symbol.iterator]();
       let offset = 0;
       let accepted: fc.Value<RunSample> | null = null;
-      for (;;) {
+      // Growing chunks (4, 16, 64, then batchSize): the first failing candidate is usually early in the stream, so a
+      // round rarely pays for a full batch. Candidate indices are global within the stream, so the path is unchanged.
+      for (let chunkNo = 0; ; chunkNo++) {
+        const size = Math.min(cfg.batchSize, 4 * 4 ** chunkNo);
         const cands: Array<fc.Value<RunSample>> = [];
-        for (let i = 0; i < cfg.batchSize; i++) {
+        for (let i = 0; i < size; i++) {
           const n = stream.next();
           if (n.done === true) break;
           cands.push(n.value);
         }
         if (cands.length === 0) break;
-        const ev = await this.evaluate(cands.map((c) => c.value), token, true);
+        // Probes (Tier 1 cross-engine checks) run on every search batch and on confirmation, not on shrink candidates.
+        const ev = await this.evaluate(cands.map((c) => c.value), token, false);
         const hit = cands.findIndex((_c, j) => this.check(ev, j) !== null);
         if (hit >= 0) {
           accepted = cands[hit] ?? null;
