@@ -23,12 +23,12 @@ function threadProps(t: XRayThread): { strokeWidth: number; opacity: number } {
  * Spec 04 §5.3 — one SVG layer in window coordinates (the grid translates it with the cells). Ordinary threads are
  * inert; fractured threads are keyboard-reachable buttons that open the counterexample.
  */
-export const XRayOverlay = memo(function XRayOverlay({ frame, onOpenCounterexample }: { readonly frame: XRayFrame; readonly onOpenCounterexample: () => void }): ReactNode {
+export const XRayOverlay = memo(function XRayOverlay({ frame, frameId, onOpenCounterexample }: { readonly frame: XRayFrame; readonly frameId: number; readonly onOpenCounterexample: () => void }): ReactNode {
   const normal = frame.threads.filter((t) => !t.fractured);
   const fractured = frame.threads.filter((t) => t.fractured);
   const open = (e: { preventDefault(): void }): void => { e.preventDefault(); onOpenCounterexample(); };
   return (
-    <svg data-testid="xray-overlay" className="pointer-events-none absolute left-0 top-0 z-[3] overflow-visible" width="1" height="1">
+    <svg data-testid="xray-overlay" data-frame-id={frameId} className="pointer-events-none absolute left-0 top-0 z-[3] overflow-visible" width="1" height="1">
       <defs>
         {ENGINES.map((e) => <Arrow key={e} id={`xr-arrow-${e}`} cls={ENGINE_FILL[e]} />)}
         <Arrow id="xr-arrow-fracture" cls="fill-fracture" />

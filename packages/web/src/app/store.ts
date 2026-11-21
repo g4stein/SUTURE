@@ -172,6 +172,8 @@ export class AppStore {
   private sources = new Map<string, CellSource>();
   private dialects = new Map<string, EngineId | 'literal'>();
   private lastIndexedDoc: SutureDocument | null = null;
+  /** A replay that arrived for a document with untrusted Python; it runs once the user trusts the workbook. */
+  private replayAfterTrust: ReplayArtifact | null = null;
 
   constructor() {
     const isolation = detectIsolation();
@@ -265,6 +267,7 @@ export class AppStore {
     if (this.snapshot.exorcist.kind === 'running') this.stopExorcist();
     this.doc = doc;
     this.untrusted.clear();
+    this.replayAfterTrust = null;
     this.engine = this.makeEngine(doc);
     const datasetEdits = this.snapshot.datasets.map((d) => ({ kind: 'registerDataset' as const, meta: d.meta }));
     if (datasetEdits.length > 0) this.engine.applyEdits(datasetEdits);
@@ -535,6 +538,9 @@ export class AppStore {
     this.set({ untrustedPy: 0 });
     this.toast('success', 'Python trusted for this workbook: its =PY() cells now run locally in the Pyodide worker.');
     await this.recalc(true);
+    const pending = this.replayAfterTrust;
+    this.replayAfterTrust = null;
+    if (pending !== null) await this.replay(pending);
   }
 
   // ------------------------------------------------------------------ Exorcist configuration (Assertions & Domains)
@@ -683,6 +689,12 @@ export class AppStore {
   }
 
   async replay(artifact: ReplayArtifact): Promise<void> {
+    // The Exorcist worker evaluates with its own engines (no trust gate), so a replay waits for trust like a session.
+    if (this.untrusted.size > 0) {
+      this.replayAfterTrust = artifact;
+      this.set({ exorcist: { kind: 'error', message: 'Trust this workbook\'s Python to replay it: the replay would run its =PY() cells.' }, panel: 'audit' });
+      return;
+    }
     const sessionId = ++this.sessionId;
     this.set({ exorcist: { kind: 'replaying', artifact }, panel: 'audit' });
     const document = this.currentDocument();

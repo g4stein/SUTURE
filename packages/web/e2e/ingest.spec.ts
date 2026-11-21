@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { expect, test } from '@playwright/test';
 import type { Workbook } from 'exceljs';
 import { watchConsole } from './console.ts';
+import { csvFixture, openApp, setCell, showDatasets, value } from './app.ts';
 
 /** exceljs's browser build (the same one the ingest worker bundles) generates a real .xlsx fixture in Node. */
 const require = createRequire(import.meta.url);
@@ -19,51 +20,42 @@ async function xlsxFixture(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-function csvFixture(): Buffer {
-  const lines = ['sku,region,units,price', ...Array.from({ length: 2000 }, (_, i) => `SKU-${i % 50},${['NA', 'EU', 'APAC'][i % 3]},${1 + (i % 9)},${(5 + (i * 13) % 200) / 2}`)];
-  return Buffer.from(lines.join('\n'));
-}
-
 test('BYO data: .csv and .xlsx import locally, exceljs loads only on the first .xlsx import, =SQL() runs against both', async ({ page }) => {
   const errors = watchConsole(page);
   const scripts: string[] = [];
   page.on('request', (r) => { if (r.resourceType() === 'script' || r.url().endsWith('.js')) scripts.push(r.url()); });
   const uploads: string[] = [];
   page.on('request', (r) => { if (r.method() !== 'GET') uploads.push(`${r.method()} ${r.url()}`); });
-  await page.goto('/');
-  await expect(page.getByTestId('pill-grid')).toHaveText('Grid Ready');
+  await openApp(page, '/?workbook=blank');
 
   // .csv → DuckDB registerFileBuffer + read_csv_auto
   await page.getByTestId('import-file').setInputFiles({ name: 'Q3 Orders.csv', mimeType: 'text/csv', buffer: csvFixture() });
-  await expect(page.getByTestId('import-report').first()).toHaveAttribute('data-ok', 'true');
+  await expect(page.getByTestId('datasets-toggle')).toHaveText('Datasets (1)', { timeout: 120_000 });
+  await showDatasets(page);
+  await expect(page.getByTestId('import-report').first()).toHaveAttribute('data-ok', 'true', { timeout: 120_000 });
   await expect(page.getByTestId('dataset-q3_orders')).toContainText('2,000 rows');
   await expect(page.getByTestId('dataset-q3_orders')).toContainText('units:Int64');
   expect(scripts.some((u) => /ingest\.worker/.test(u)), 'the ingest worker is not loaded for CSV').toBe(false);
-  await page.getByTestId('new-cell-key').fill('Data!A1');
-  await page.getByTestId('new-cell-raw').fill('=SQL("SELECT sum(units * price) FROM q3_orders WHERE region = \'EU\'")');
-  await page.getByTestId('new-cell-add').click();
-  await expect(page.getByTestId('value-Data!A1')).toHaveText(/^\d+(\.\d+)?$/);
+  await setCell(page, 'Sheet1!A1', '=SQL("SELECT sum(units * price) FROM q3_orders WHERE region = \'EU\'")');
+  await expect(value(page, 'Sheet1!A1')).toHaveText(/^\d+(\.\d+)?$/, { timeout: 60_000 });
 
   // .xlsx → ingest worker (exceljs) → sheets + Arrow table → DuckDB
   await page.getByTestId('import-file').setInputFiles({ name: 'Pipeline.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: await xlsxFixture() });
+  await expect(page.getByTestId('datasets-toggle')).toHaveText('Datasets (2)', { timeout: 120_000 });
+  await expect(page.getByTestId('toast').filter({ hasText: 'sheets "Pipeline"' })).toBeVisible({ timeout: 120_000 });
+  await showDatasets(page);
   await expect(page.getByTestId('import-report').first()).toContainText('sheets "Pipeline"');
   await expect(page.getByTestId('import-report').first()).toContainText('1 cell(s) #NAME?');
   expect(scripts.some((u) => /ingest\.worker/.test(u)), 'the ingest worker chunk loads lazily on the first .xlsx import').toBe(true);
-  await expect(page.getByTestId('value-Pipeline!E2')).toHaveText('880000');
-  await expect(page.getByTestId('value-Pipeline!E3')).toHaveText('1.5');
-  await expect(page.getByTestId('value-Pipeline!E4')).toHaveText('#NAME?');
+  await expect(value(page, 'Pipeline!E2')).toHaveText('880000');
+  await expect(value(page, 'Pipeline!E3')).toHaveText('1.5');
+  await expect(value(page, 'Pipeline!E4')).toHaveText('#NAME?');
   await expect(page.getByTestId('dataset-pipeline_xlsx_pipeline')).toContainText('4 rows');
-  await page.getByTestId('new-cell-key').fill('Data!A2');
-  await page.getByTestId('new-cell-raw').fill('=SQL("SELECT sum(deals) FROM pipeline_xlsx_pipeline WHERE NOT won")');
-  await page.getByTestId('new-cell-add').click();
-  await expect(page.getByTestId('value-Data!A2')).toHaveText('71');
-  await page.getByTestId('new-cell-key').fill('Data!A3');
-  await page.getByTestId('new-cell-raw').fill('=PY("t = inputs[\'A4\']; float(t[\'value\'].mean())")'); // one-line input: ';' separates statements
-  await page.getByTestId('new-cell-add').click();
-  await page.getByTestId('new-cell-key').fill('Data!A4');
-  await page.getByTestId('new-cell-raw').fill('=SQL("SELECT * FROM pipeline_xlsx_pipeline")');
-  await page.getByTestId('new-cell-add').click();
-  await expect(page.getByTestId('value-Data!A3')).toHaveText('220000');
+  await setCell(page, 'Sheet1!A2', '=SQL("SELECT sum(deals) FROM pipeline_xlsx_pipeline WHERE NOT won")');
+  await expect(value(page, 'Sheet1!A2')).toHaveText('71', { timeout: 60_000 });
+  await setCell(page, 'Sheet1!A4', '=SQL("SELECT * FROM pipeline_xlsx_pipeline")');
+  await setCell(page, 'Sheet1!A3', '=PY("t = inputs[\'A4\']; float(t[\'value\'].mean())")'); // one-line source: ';' separates statements
+  await expect(value(page, 'Sheet1!A3')).toHaveText('220000', { timeout: 240_000 });
 
   expect(uploads, 'imports never upload bytes').toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);

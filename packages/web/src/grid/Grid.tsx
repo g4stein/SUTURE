@@ -121,8 +121,11 @@ export function Grid({ snap, store }: { readonly snap: AppSnapshot; readonly sto
 
   // ------------------------------------------------------------------ X-Ray frame (memoized, Req 5.8)
   const lineage = snap.focus?.lineage ?? null;
+  // Counts recomputations; rendered as data-frame-id so tests can prove scrolling inside the window reuses the frame.
+  const frameSeq = useRef(0);
   const frame: XRayFrame | null = useMemo(() => {
     if (!snap.xray) return null;
+    frameSeq.current++;
     const engineOf = (k: CellKey): EngineId => { const d = store.dialect(k); return d === 'sql' || d === 'py' ? d : 'formula'; };
     return computeXRayFrame({
       sheet, cells: store.cellsOn(sheet).map((c) => c.key), precedents: (k) => store.precedents(k), dependents: (k) => store.dependents(k), engineOf,
@@ -265,7 +268,7 @@ export function Grid({ snap, store }: { readonly snap: AppSnapshot; readonly sto
                     })}
                   </div>
                 ))}
-                {frame !== null && <XRayOverlay frame={frame} onOpenCounterexample={focusFracture} />}
+                {frame !== null && <XRayOverlay frame={frame} frameId={frameSeq.current} onOpenCounterexample={focusFracture} />}
                 {callouts.map((c) => (
                   <div key={c.key} data-testid={`callout-${c.key}`} data-tone={c.tone}
                     className={`pointer-events-none absolute z-[4] whitespace-nowrap rounded-full border px-2 font-mono text-[10px] leading-[18px] shadow-lg ${c.tone === 'violated' ? 'border-fracture bg-fracture text-obsidian' : c.tone === 'input' ? 'border-fracture bg-slate-raised text-fracture' : 'border-fracture/60 bg-slate-raised text-ink'}`}
