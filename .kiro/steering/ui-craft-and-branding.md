@@ -13,20 +13,21 @@ Suture looks like a quantitative terminal: dense, precise, quiet. The Kiroween m
 
 | Token | Value | Use |
 |---|---|---|
-| `obsidian` | `#0B0E13` | App background |
-| `slate-surface` | `#121821` | Grid, panels |
-| `slate-raised` | `#1A2230` | Headers, popovers |
-| `slate-line` | `#263142` | Gridlines, borders |
+| `obsidian` | `#090B10` | App background |
+| `slate-surface` | `#10141D` | Grid, panels |
+| `slate-raised` | `#171C28` | Headers, popovers |
+| `slate-line` | `#263142` | Gridlines, hairline borders |
 | `ink` | `#D6DEEA` | Primary text |
 | `ink-muted` | `#7C8AA0` | Secondary text |
-| `engine-sql` | `#22D3EE` (cyan) | SQL cells and threads |
-| `engine-py` | `#F59E0B` (amber) | Python cells and threads |
-| `engine-formula` | `#10B981` (emerald) | Formula cells and threads |
-| `fracture` | `#DC143C` (crimson) | Failing lineage, counterexamples |
+| `engine-sql` | `#06B6D4` (cyan) | SQL cells and threads (`SQL` chip) |
+| `engine-py` | `#F59E0B` (amber) | Python cells and threads (`PY` chip) |
+| `engine-formula` | `#10B981` (emerald) | Formula cells and threads (`FX` chip) |
+| `fracture` | `#F43F5E` (surgical crimson) | Failing lineage, counterexamples, error codes |
 
 - Numbers use a tabular monospace font (`font-variant-numeric: tabular-nums`) and are right-aligned.
-- Body text meets WCAG AA contrast against its surface.
-- Engine colors come only from these tokens. Never hard-code hex values in components.
+- Body text meets WCAG AA contrast against its surface. Every text token is at least 4.5:1 on `slate-surface` and `slate-raised` (checked by `packages/web/test/contrast.test.ts`); `fracture` is 5.02:1 on `slate-surface`.
+- Engine colors come only from these tokens. Never hard-code hex values in components (checked by `packages/web/test/hexColors.test.ts`).
+- Fonts are the system monospace and sans-serif stacks. No web fonts are fetched.
 
 ## 2. X-Ray Mode
 
@@ -53,7 +54,7 @@ Engines load progressively. The grid is never blocked waiting for them.
 3. **Pyodide + NumPy** loads lazily on the first `=PY()` cell (or when the browser is idle, after DuckDB).
 
 - The indicator tracks one of these internal states per engine: `not loaded`, `loading`, `ready`, `degraded`, `failed`.
-- Display labels: `not loaded` is shown as **Lazy** (for example `Python/NumPy Lazy`), meaning the engine will load on first use. Once loading begins the label is never Lazy again: it moves to `Loading`, then `Ready`, `Degraded (…)`, or `Failed`. The other states are shown by name.
+- Display labels: `not loaded` is shown as **Lazy** (for example `Python/NumPy: Lazy`, in the pill form `Grid: Ready | DuckDB: … | Python/NumPy: …`), meaning the engine will load on first use. Once loading begins the label is never Lazy again: it moves to `Loading`, then `Ready`, `Degraded (…)`, or `Failed`. The other states are shown by name.
 - Show real progress only when the loader reports bytes. Otherwise show an indeterminate state. Never show a fake percentage.
 - `degraded` states the reason in plain words, for example "DuckDB: timeouts restart the engine (page is not cross-origin isolated)".
 - Cells waiting for an engine show a pending state, not an error and not a stale value.

@@ -72,7 +72,7 @@ Run core tests with `npx vitest --run` in `packages/core`. Do not use watch mode
   - [x] 5.1 Implement `exorcistProtocol.ts` and `exorcist.worker.ts` with snapshot engines, `background` priority, `enginePortReplaced` handling, and progress throttling.
     - Verify: a timeout without isolation, and an isolated cooperative cancel that does not settle within 1,000 ms, each make the Exorcist post `respawnRequest` (causes `deadline` / `abort`) and receive `enginePortReplaced` with a new `portId` and matching `cause`; a long session emits progress at most 250 ms apart; editing on the main thread during a session leaves the session result unchanged; stop resolves in-flight requests as `cancelled` immediately, and the workers are free again within 1,000 ms plus respawn time; a main-thread long-task observer records no task over 50 ms during a session.
     - _Requirements: 6.5, 8.1–8.4_
-    - Evidence: c45d8bd, 307f680 — `e2e/slice.spec.ts`, `e2e/flagships.spec.ts`.
+    - Evidence: c45d8bd, 307f680 — `e2e/slice.spec.ts` (retired in Phase 4), `e2e/flagships.spec.ts`, `e2e/journeys.spec.ts`.
   - [x] 5.2 Implement the replay outcomes: `reproduced` (exact or direct), `notReproduced`, and `hashMismatch`.
     - Verify: an altered `fastCheckVersion` with changed generation falls back to direct replay; a modified workbook gives `hashMismatch` with both hashes.
     - _Requirements: 7.6–7.8_

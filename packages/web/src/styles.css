@@ -3,9 +3,19 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { font-family: ui-sans-serif, system-ui, sans-serif; }
+html, body { overflow: hidden; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
 .tabular { font-variant-numeric: tabular-nums; }
 
+/* Fracture pulse: opacity only (steering §2). */
 @keyframes suture-pulse { from { opacity: 1 } to { opacity: .35 } }
 .suture-pulse { animation: suture-pulse 1.2s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) { .suture-pulse { animation: none; opacity: 1; } }
+
+/* Directional flow on selection-adjacent threads: stroke-dashoffset only, capped at 64 paths. */
+@keyframes suture-flow { to { stroke-dashoffset: -16 } }
+.suture-flow { animation: suture-flow 0.9s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .suture-pulse { animation: none; opacity: 1; }
+  .suture-flow { animation: none; opacity: 0; }
+}

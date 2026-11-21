@@ -3,7 +3,7 @@ import { queryIPC } from '../src/workers/duckdbIpc.ts';
 import { lowbias32 } from '@suture/core';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { DuckDBConnection } from '../node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-blocking';
-import { A1_SQL, E1_SQL } from '../src/slice/sliceDocument.ts';
+import { A1_SQL, E1_SQL } from './fixtures/sliceSql.ts';
 import { MACROS, openNodeDuckDB } from './nodeDuckdb.ts';
 
 let conn: DuckDBConnection;
