@@ -19,54 +19,6 @@ async function open(page: Page, url: string): Promise<void> {
   await expect(page.locator('#log')).toHaveText('harness ready');
 }
 
-// DIAG(temp): collect `[diag]` lines from the page AND its dedicated workers (worker.on('console'), Playwright ≥ 1.57) and
-// print them after every test, pass or fail, so the GitHub Actions log shows each milestone with epoch-ms timestamps.
-// Chromium also mirrors worker console messages onto the page, so lines are keyed by text and keep the worker's label.
-// "[quiet]" tests turn console output off (the console traffic itself changed timing: the failure vanished with it) and
-// read the in-memory logs back at the end, plus the page's worst main-thread timer lag.
-type DiagGlobal = { __sutureDiagLog?: string[]; __sutureDiagConsole?: boolean; __sutureLagMs?: number };
-let diagLines = new Map<string, string>();
-const workerLabel = (url: string): string => new URL(url).pathname.split('/').pop()?.replace(/-[\w-]{8}\.js$/, '') ?? 'worker';
-test.beforeEach(async ({ page }, testInfo) => {
-  diagLines = new Map();
-  const quietPage = testInfo.title.includes('[quiet-');
-  const quietWorkers = testInfo.title.includes('[quiet-all');
-  const take = (where: string) => (m: { text(): string }): void => {
-    const t = m.text();
-    if (t.startsWith('[diag] ') && (where !== 'page' || !diagLines.has(t))) diagLines.set(t, where);
-  };
-  page.on('console', take('page'));
-  page.on('worker', (w) => {
-    w.on('console', take(workerLabel(w.url())));
-    if (quietWorkers) void w.evaluate(() => { (globalThis as DiagGlobal).__sutureDiagConsole = false; }).catch(() => undefined);
-  });
-  if (quietPage) {
-    await page.addInitScript(() => {
-      const g = globalThis as DiagGlobal;
-      g.__sutureDiagConsole = false;
-      g.__sutureLagMs = 0;
-      let last = performance.now();
-      setInterval(() => { const n = performance.now(); g.__sutureLagMs = Math.max(g.__sutureLagMs ?? 0, n - last - 50); last = n; }, 50);
-    });
-  }
-});
-test.afterEach(async ({ page }, testInfo) => {
-  const read = (): { log: string[]; lag: number | null } => { const g = globalThis as DiagGlobal; return { log: g.__sutureDiagLog ?? [], lag: g.__sutureLagMs ?? null }; };
-  const fromPage = await page.evaluate(read).catch(() => ({ log: [] as string[], lag: null }));
-  for (const t of fromPage.log) if (!diagLines.has(t)) diagLines.set(t, 'page');
-  for (const w of page.workers()) {
-    const r = await w.evaluate(read).catch(() => ({ log: [] as string[], lag: null }));
-    for (const t of r.log) diagLines.set(t, `${workerLabel(w.url())} (live)`);
-  }
-  if (fromPage.lag !== null) diagLines.set(`[diag] 9999999999999.9 page.maxTimerLagMs ${fromPage.lag.toFixed(1)}`, 'page');
-  const body = [...diagLines].map(([t, where]) => {
-    const d = /^\[diag\] (\S+) (.*)$/s.exec(t);
-    return `${d?.[1] ?? ''} ${where.padEnd(22)} ${d?.[2] ?? t}`;
-  }).sort().join('\n');
-  console.log(`[diag-dump] ${testInfo.title} (${testInfo.status})\n${body}`);
-  await testInfo.attach('diag-timeline.txt', { body, contentType: 'text/plain' });
-});
-
 const call = <T>(page: Page, fn: (api: Api, arg: unknown) => Promise<T> | T, arg: unknown = null): Promise<T> =>
   page.evaluate(([f, a]) => (new Function('api', 'arg', `return (${f as string})(api, arg)`) as (api: unknown, arg: unknown) => Promise<T>)((globalThis as unknown as { __suture: unknown }).__suture, a), [fn.toString(), arg] as const);
 
@@ -94,8 +46,7 @@ test.describe('isolated (COOP/COEP): cooperative cancel, 1 s escalation, crash r
     expect(errors, errors.join('\n')).toEqual([]);
   });
 
-  for (const rep of ['loud 1', 'quiet-page 1', 'quiet-page 2', 'quiet-page 3', 'quiet-all 1', 'quiet-all 2', 'quiet-all 3', 'quiet-all 4']) { // DIAG(temp): repeated so a CI-only failure is caught with its timeline
-  test(`(a) Python \`while True: pass\` is interrupted cooperatively: #TIMEOUT!, the worker survives (no respawn) [${rep}]`, async ({ page }) => {
+  test('(a) Python `while True: pass` is interrupted cooperatively: #TIMEOUT!, the worker survives (no respawn)', async ({ page }) => {
     await open(page, HARNESS);
     await call(page, (api) => api.boot('pyodide'));
     const out = await call(page, (api) => api.cells({ A1: '=PY("while True: pass")', A2: '=PY("6 * 7")' }, 1500));
@@ -103,7 +54,6 @@ test.describe('isolated (COOP/COEP): cooperative cancel, 1 s escalation, crash r
     expect(out['A2']).toBe('42');
     expect((await call(page, (api) => api.telemetry())).respawns.pyodide).toBe(0);
   });
-  }
 
   test('(a) a Python job that never reaches the interrupt check escalates after 1 s and respawns', async ({ page }) => {
     await open(page, HARNESS);

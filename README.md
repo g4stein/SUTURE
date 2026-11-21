@@ -23,7 +23,7 @@ Each flagship ships with a realistic modeling flaw that its base case hides. The
 | **SaaS Cash Runway & Unit Economics** | DuckDB cohort SQL → NumPy least-squares burn projection (`Model!B4`) → `Model!B5 = cash / B4` | Runway divides by projected net burn with no guard. A company that turns profitable gets a negative runway and is told to "RAISE NOW". |
 | **100,000-Row E-Commerce Margin Audit** | DuckDB synthesizes 100,000 orders and aggregates them once into 96 tiers. Per scenario, it runs stress SQL over the tiers, then a NumPy pivot and weighted OLS, then `SUMIFS` / `AVERAGEIF` / `VLOOKUP` KPIs. | The discount cap is applied to each discount separately instead of to the stacked total, so the Hardlines stacked cohort goes below zero net margin. |
 
-Fresh-seed discovery times in Chromium on the Phase 3 build were 2.6–3.4 s for flagship 1 (4 runs) and 2.5–3.6 s for flagship 2 (6 seeds). That time covers search, shrink, and decimal simplification.
+Fresh-seed discovery times in Chromium on the Phase 3 build were 2.5–3.6 s for flagship 1 (8 runs, local and GitHub Actions) and 2.5–3.6 s for flagship 2 (10 runs). That time covers search, shrink, and decimal simplification.
 
 ## Architecture
 

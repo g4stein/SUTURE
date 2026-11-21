@@ -423,8 +423,8 @@ Measured on the Phase 3 build with value-uniform float domains (Spec 03 §4.1, c
 
 | Flagship | Node, real engines | Browser (Playwright, Chromium) | Index of the first failing run |
 |---|---|---|---|
-| 1 | 1.9–3.0 s (7 seeds) | 2.6–3.4 s (4 runs, 1 on GitHub Actions; 1 above the 3 s target) | 0–5 (Node) |
-| 2 | 2.3–4.8 s (7 seeds) | 2.5–3.6 s (6 seeds) | 0–79 |
+| 1 | 1.9–3.0 s (7 seeds) | 2.5–3.6 s (8 runs: 3 local, 5 on GitHub Actions; 3 above the 3 s target, at 3.1, 3.4, and 3.6 s) | 0–5 (Node) |
+| 2 | 2.3–4.8 s (7 seeds) | 2.5–3.6 s (10 runs: 6 local, 4 on GitHub Actions) | 0–79 |
 
 History for flagship 2:
 - With `fc.double` domains, the first failing run came at index 17–737 over 8 seeds. That is about 0.36% of runs, so about 3% of seeds would have found nothing in 1,000 runs. Node discovery took 3.4–18.3 s.

@@ -1,7 +1,6 @@
 # Spec 02 §4.5 — Option C bridge: JS typed-array views -> one JsBuffer.assign_to memcpy per column into NumPy.
 import builtins
 import traceback
-import time as _diag_time  # DIAG(temp)
 
 import numpy as np
 from pyodide.code import eval_code
@@ -161,7 +160,6 @@ def _line(e, filename):
 
 
 def _exec(code, filename, inputs, seed):
-    _diag_started = _diag_time.time() * 1000.0  # DIAG(temp)
     np.random.seed(seed)
     ns = {"__builtins__": builtins, "np": np, "inputs": _Inputs(inputs), "rng": np.random.default_rng(seed)}
     flag = _DivFlag()
@@ -172,7 +170,7 @@ def _exec(code, filename, inputs, seed):
     except ZeroDivisionError as e:
         return ("err", "#DIV/0!", f"ZeroDivisionError: {e}")
     except KeyboardInterrupt:
-        return ("interrupt", _diag_time.time() * 1000.0, _diag_started)  # DIAG(temp): caught / exec-start epoch ms
+        return ("interrupt",)
     except KeyError as e:
         msg = str(e.args[0]) if e.args else "KeyError"
         if msg.startswith("undeclared input key"):

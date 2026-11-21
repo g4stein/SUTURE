@@ -737,6 +737,11 @@ Cooperative cancellation:
 - **Pyodide:** the client writes its job ticket (`portId * 2^20 + requestId`, kept below 2^31) to `interrupt[1]`, then `Atomics.store(interrupt, 0, 2)` (SIGINT). When Python raises `KeyboardInterrupt`, the worker compares `interrupt[1]` with the running job's ticket:
   - on a match, it returns `#TIMEOUT!` or `cancelled`;
   - on a mismatch (the target finished and a new job started between the client's check and store), it clears the signal and re-runs the current job. Evaluation is deterministic, so the re-run is safe.
+- **Re-assert until settled (both engines, Phase 3 fix):** after the first write, the client checks the signal byte every 25 ms (`REASSERT_MS`) until the worker settles or the 1,000 ms escalation fires. Whenever the byte reads 0, the client rewrites `[1]` with its ticket and then `compareExchange([0], 0, signal)`.
+  - **Why:** Pyodide 314.0.8 consumes the byte in `_Py_CheckEmscriptenSignals_Helper` with a plain read followed by an unconditional `buffer[0] = 0`, many times per second while Python runs. A store that lands between that read and that write is erased. Python never sees the signal, and the 1 s escalation respawns a worker that was interruptible.
+  - **Measured:** in a Node stress test with `while True: pass` and real Pyodide, 72 of 300 single writes were lost (24%), and Pyodide's helper erased a pending signal 100 times. With the re-assert, 0 of 300 were lost and the slowest settle took 130 ms.
+  - **Cost:** a re-assert that lands after the job finished reaches the next job with a stale ticket. Pyodide re-runs that job; DuckDB clears the signal and continues.
+  - The cost and the mechanism are logged in `.kiro/audit/pbt-discoveries.md`.
 
 ## 7. Crash recovery (`engineHost.ts`)
 
