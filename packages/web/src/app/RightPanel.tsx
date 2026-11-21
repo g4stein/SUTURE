@@ -1,9 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import type { AppSnapshot, AppStore, PanelTab } from './store.ts';
 import { CellInspector } from '../inspector/CellInspector.tsx';
+import { AssertionsTab } from '../exorcist/AssertionsTab.tsx';
+import { AuditTab } from '../exorcist/AuditTab.tsx';
 
 const TABS: ReadonlyArray<{ readonly id: PanelTab; readonly label: string }> = [
   { id: 'cell', label: 'Cell' },
+  { id: 'assertions', label: 'Assertions & Domains' },
+  { id: 'audit', label: 'Audit Results' },
 ];
 
 /** Exorcist Audit Studio (right inspector panel). Below 768 px it becomes a collapsible bottom sheet. */
@@ -22,7 +26,9 @@ export function RightPanel({ snap, store }: { readonly snap: AppSnapshot; readon
         <button type="button" aria-label={openNarrow ? 'Collapse studio' : 'Expand studio'} onClick={() => setOpenNarrow((o) => !o)} className="px-3 text-ink-muted hover:text-ink md:hidden">{openNarrow ? '▾' : '▴'}</button>
       </div>
       <div className={`min-h-0 flex-1 overflow-y-auto p-3 ${openNarrow ? 'block' : 'hidden'} md:block`}>
-        <CellInspector snap={snap} store={store} />
+        {snap.panel === 'cell' && <CellInspector snap={snap} store={store} />}
+        {snap.panel === 'assertions' && <AssertionsTab snap={snap} store={store} />}
+        {snap.panel === 'audit' && <AuditTab snap={snap} store={store} />}
       </div>
     </aside>
   );
