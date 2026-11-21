@@ -5,3 +5,4 @@
  */
 export * from './engines.ts';
 export * from './adapters.ts';
+export * from './files.ts';

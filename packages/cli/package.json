@@ -1,0 +1,26 @@
+{
+  "name": "@suture/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "suture": "./dist/suture.mjs"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vite build && vitest --run"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "pyodide": "314.0.8"
+  },
+  "devDependencies": {
+    "@suture/core": "workspace:*",
+    "@suture/runtime": "workspace:*",
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2",
+    "vite": "7.3.8",
+    "vitest": "4.1.12"
+  }
+}

@@ -179,6 +179,34 @@ importers:
 
   .: {}
 
+  packages/cli:
+    dependencies:
+      '@duckdb/duckdb-wasm':
+        specifier: 1.32.0
+        version: 1.32.0
+      pyodide:
+        specifier: 314.0.8
+        version: 314.0.8
+    devDependencies:
+      '@suture/core':
+        specifier: workspace:*
+        version: link:../core
+      '@suture/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@types/node':
+        specifier: 22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vite:
+        specifier: 7.3.8
+        version: 7.3.8(@types/node@22.20.5)(jiti@1.21.7)
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(jiti@1.21.7))
+
   packages/core:
     dependencies:
       '@formulajs/formulajs':
@@ -202,7 +230,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 4.1.12
-        version: 4.1.12(@types/node@22.20.5)(jiti@1.21.7)
+        version: 4.1.12(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(jiti@1.21.7))
 
   packages/runtime:
     dependencies:
@@ -233,7 +261,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: 4.1.12
-        version: 4.1.12(@types/node@22.20.5)(jiti@1.21.7)
+        version: 4.1.12(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(jiti@1.21.7))
 
   packages/web:
     dependencies:
@@ -294,7 +322,7 @@ importers:
         version: 7.3.8(@types/node@22.20.5)(jiti@1.21.7)
       vitest:
         specifier: 4.1.12
-        version: 4.1.12(@types/node@22.20.5)(jiti@1.21.7)
+        version: 4.1.12(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(jiti@1.21.7))
 
 packages:
 
@@ -3104,7 +3132,7 @@ snapshots:
       fsevents: 2.3.3
       jiti: 1.21.7
 
-  vitest@4.1.12(@types/node@22.20.5)(jiti@1.21.7):
+  vitest@4.1.12(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(jiti@1.21.7)):
     dependencies:
       '@vitest/expect': 4.1.12
       '@vitest/mocker': 4.1.12(vite@7.3.8(@types/node@22.20.5)(jiti@1.21.7))
@@ -3129,17 +3157,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 22.20.5
     transitivePeerDependencies:
-      - jiti
-      - less
-      - lightningcss
       - msw
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - terser
-      - tsx
-      - yaml
 
   why-is-node-running@2.3.0:
     dependencies:

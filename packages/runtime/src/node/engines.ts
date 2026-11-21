@@ -1,3 +1,4 @@
+/// <reference path="./env.d.ts" />
 import { createRequire } from 'node:module';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';

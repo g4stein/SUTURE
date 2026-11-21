@@ -8,6 +8,7 @@
     "./engines": "./src/engines/index.ts",
     "./bridge": "./src/bridge/index.ts",
     "./workbooks": "./src/workbooks/index.ts",
+    "./headless": "./src/headless/index.ts",
     "./node": "./src/node/index.ts",
     "./python/suture_bridge.py": "./src/engines/python/suture_bridge.py"
   },

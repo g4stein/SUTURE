@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as fc from 'fast-check';
 import { tableFromIPC } from 'apache-arrow';
@@ -79,6 +80,7 @@ describe('BYO data ingest against real DuckDB-WASM (Spec 02 Req 5)', () => {
     const gen = (await openNodeDuckDB()).conn;
     gen.query("COPY (SELECT i AS id, i * 1.5 AS amount, CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END AS parity FROM range(2500) t(i)) TO 'gen.parquet' (FORMAT parquet)");
     const bytes = gen.useUnsafe((b) => b.copyFileToBuffer('gen.parquet'));
+    rmSync('tmp_gen.parquet', { force: true }); // DuckDB's Node file system leaves its COPY staging file in the working directory
     const t0 = performance.now();
     const r = await register('ledger', bytes, 'parquet', 'parquet');
     console.info(`[ingest] first Parquet upload (incl. lazy INSTALL/LOAD parquet): ${Math.round(performance.now() - t0)} ms`);

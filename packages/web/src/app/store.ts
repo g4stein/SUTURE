@@ -1,7 +1,7 @@
 import {
   assertionHolds, createWorkbookEngine, decodeScalar, fromReplayFragment, isCellError, isReplayArtifact, literalDisplay, NEVER_CANCELLED, parseA1, parseCellKey,
   scenarioEdits, splitSheetPrefix, toCellKey, validateConfig, workbookHash,
-  type CellAssertion, type CellKey, type CellSource, type CellValue, type DatasetMeta, type Edit, type EngineId, type ExecutionMode, type ExorcistConfig,
+  type CellKey, type CellSource, type CellValue, type DatasetMeta, type Edit, type EngineId, type ExecutionMode, type ExorcistConfig,
   type ExorcistProgress, type ExorcistVerdict, type LineagePath, type ReplayArtifact, type ReplayOutcome, type ScalarValue, type SutureDocument, type TableRef,
   type WorkbookEngine,
 } from '@suture/core';
@@ -9,6 +9,7 @@ import {
   detectIsolation, gatedPyEngine, PyBridge, sanitizeDatasetName, SqlBridge,
   type EngineName, type EngineStatus, type IsolationInfo,
 } from '@suture/runtime/bridge';
+import { assertionLabel } from '@suture/runtime/headless';
 import { blankDocument, ecommerceMarginDocument, saasRunwayDocument, validateDocument } from '@suture/runtime/workbooks';
 import { EngineHost, type Telemetry } from '../workers/engineHost.ts';
 import { isExorcistEvent, type ExorcistCommand } from '../workers/exorcistProtocol.ts';
@@ -130,19 +131,8 @@ export interface AppSnapshot {
   readonly usesPy: boolean;
 }
 
-const LABELS: Readonly<Record<CellAssertion['kind'], string>> = { finite: 'finite', notError: 'not error', notNull: 'not null', gte: '≥', lte: '≤', gt: '>', lt: '<', between: 'between', monotonicWith: 'monotonic with' };
 const RECALC = { tieBreak: { kind: 'rowMajor' as const }, token: NEVER_CANCELLED, sliceMs: 8 };
 const TOAST_MS = 5000;
-
-export function assertionLabel(a: CellAssertion): string {
-  const op = (o: { readonly kind: 'const'; readonly value: number } | { readonly kind: 'cell'; readonly cell: CellKey }): string => (o.kind === 'const' ? String(o.value) : o.cell);
-  switch (a.kind) {
-    case 'gte': case 'lte': case 'gt': case 'lt': return `${LABELS[a.kind]} ${op(a.operand)}`;
-    case 'between': return `between ${op(a.min)} and ${op(a.max)}`;
-    case 'monotonicWith': return `${a.direction === 'nonDecreasing' ? 'non-decreasing' : 'non-increasing'} in ${a.input}`;
-    default: return LABELS[a.kind];
-  }
-}
 
 const upperKey = (k: string): string => k.toUpperCase();
 

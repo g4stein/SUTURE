@@ -7,3 +7,4 @@ export * from './saasRunway.ts';
 export * from './ecommerceMargin.ts';
 export * from './blank.ts';
 export * from './validateDocument.ts';
+export * from './registry.ts';
