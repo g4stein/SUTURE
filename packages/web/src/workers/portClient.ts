@@ -46,7 +46,20 @@ interface Pending {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-export class PortClient {
+export interface RequestOptions {
+  readonly priority: Priority;
+  readonly deadlineMs: number;
+  readonly signal: AbortSignal | null;
+  readonly generation: number | null;
+  readonly transfer?: Transferable[];
+}
+
+/** What the core-port bridges need from an engine: PortClient (browser workers) or a direct in-process client (Node hosts). */
+export interface EngineClient {
+  request<K extends RequestKind>(kind: K, payload: PayloadOf<K>, opts: RequestOptions): Promise<WorkerResult>;
+}
+
+export class PortClient implements EngineClient {
   private port: MessagePort;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
@@ -123,10 +136,7 @@ export class PortClient {
     p.reject(new DeadlineExceeded(p.deadlineMs));
   }
 
-  request<K extends RequestKind>(kind: K, payload: PayloadOf<K>, opts: {
-    readonly priority: Priority; readonly deadlineMs: number; readonly signal: AbortSignal | null;
-    readonly generation: number | null; readonly transfer?: Transferable[];
-  }): Promise<WorkerResult> {
+  request<K extends RequestKind>(kind: K, payload: PayloadOf<K>, opts: RequestOptions): Promise<WorkerResult> {
     const requestId = this.nextId++;
     const message = { protocol: PROTOCOL_VERSION, requestId, generation: opts.generation, kind, priority: opts.priority, deadlineMs: opts.deadlineMs, payload } as WorkerRequest;
     return new Promise<WorkerResult>((resolve, reject) => {

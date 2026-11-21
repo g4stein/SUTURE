@@ -3,7 +3,7 @@ import {
   type CancellationToken, type CellKey, type CellValue, type EngineBatchOutcome, type EngineOutcome, type PyBatchEvalRequest,
   type PyBinding, type PyEngine, type PyEvalRequest, type SqlBatchEvalRequest, type SqlEngine, type SqlEvalRequest, type SqlTableBinding, type TableRef,
 } from '@suture/core';
-import { DeadlineExceeded, EngineCrashed, signalFromToken, type PortClient } from './portClient.ts';
+import { DeadlineExceeded, EngineCrashed, signalFromToken, type EngineClient } from './portClient.ts';
 import { owned, type Priority, type ResultId, type WirePyBinding, type WireTableBinding, type WorkerResult } from './protocol.ts';
 
 export const DEADLINE_SINGLE_MS = 10_000;
@@ -75,7 +75,7 @@ function many(r: WorkerResult, n: number, cell: CellKey, engine: 'sql' | 'py'): 
 }
 
 export class SqlBridge implements SqlEngine {
-  constructor(private readonly client: () => Promise<PortClient>, private readonly priority: Priority) {}
+  constructor(private readonly client: () => Promise<EngineClient>, private readonly priority: Priority) {}
 
   async evaluate(req: SqlEvalRequest, token: CancellationToken): Promise<EngineOutcome> {
     try {
@@ -112,7 +112,7 @@ export class SqlBridge implements SqlEngine {
 }
 
 export class PyBridge implements PyEngine {
-  constructor(private readonly client: () => Promise<PortClient>, private readonly priority: Priority) {}
+  constructor(private readonly client: () => Promise<EngineClient>, private readonly priority: Priority) {}
 
   async evaluate(req: PyEvalRequest, token: CancellationToken): Promise<EngineOutcome> {
     try {

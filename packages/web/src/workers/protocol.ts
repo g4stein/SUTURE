@@ -123,7 +123,7 @@ export type PayloadOf<K extends RequestKind> = Extract<WorkerRequest, { kind: K 
 export type WorkerResult =
   | { readonly kind: 'duckdb.ready'; readonly bundle: 'eh' | 'mvp'; readonly duckdbVersion: string; readonly validator: 'ast' | 'lexical' }
   | { readonly kind: 'py.ready'; readonly pyodideVersion: string; readonly numpyVersion: string; readonly interrupt: boolean }
-  | { readonly kind: 'dataset'; readonly meta: DatasetMeta }
+  | { readonly kind: 'dataset'; readonly meta: DatasetMeta; readonly preview: TableRef }
   | { readonly kind: 'ack' }
   | { readonly kind: 'value'; readonly value: CellValue; readonly resultId: ResultId | null }
   | { readonly kind: 'values'; readonly values: ReadonlyArray<CellValue>; readonly resultIds: ReadonlyArray<ResultId | null> }
@@ -253,7 +253,7 @@ function isResult(r: unknown): r is WorkerResult {
   switch (r['kind']) {
     case 'duckdb.ready': return (r['bundle'] === 'eh' || r['bundle'] === 'mvp') && isStr(r['duckdbVersion']) && (r['validator'] === 'ast' || r['validator'] === 'lexical');
     case 'py.ready': return isStr(r['pyodideVersion']) && isStr(r['numpyVersion']) && isBool(r['interrupt']);
-    case 'dataset': return isObj(r['meta']);
+    case 'dataset': return isObj(r['meta']) && isTableRef(r['preview']);
     case 'ack': case 'cancelled': return true;
     case 'value': return isCellValue(r['value']) && (r['resultId'] === null || isStr(r['resultId']));
     case 'values': return arr(r['values'], isCellValue) && Array.isArray(r['resultIds']);

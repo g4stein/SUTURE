@@ -374,7 +374,7 @@ class Session implements ExorcistSession {
     for (let i = 0; i < this.doc.exorcist.inputs.length; i++) {
       const cands = this.simplifyCandidates(cur).filter((c) => c.input === i);
       if (cands.length === 0) continue;
-      const ev = await this.evaluate(cands.map((c) => c.sample), token, true);
+      const ev = await this.evaluate(cands.map((c) => c.sample), token, false);
       for (let j = 0; j < cands.length; j++) {
         const v = this.check(ev, j);
         const c = cands[j];
@@ -533,7 +533,7 @@ class Session implements ExorcistSession {
   }
 
   private async failsAlone(sample: RunSample, token: CancellationToken): Promise<boolean> {
-    const ev = await this.evaluate([sample], token, true);
+    const ev = await this.evaluate([sample], token, false);
     return this.check(ev, 0) !== null;
   }
 
@@ -546,15 +546,19 @@ class Session implements ExorcistSession {
       const stream = this.arb.shrink(cur.value, cur.context)[Symbol.iterator]();
       let offset = 0;
       let accepted: fc.Value<RunSample> | null = null;
-      for (;;) {
+      // Growing chunks (4, 16, 64, then batchSize): the first failing candidate is usually early in the stream, so a
+      // round rarely pays for a full batch. Candidate indices are global within the stream, so the path is unchanged.
+      for (let chunkNo = 0; ; chunkNo++) {
+        const size = Math.min(cfg.batchSize, 4 * 4 ** chunkNo);
         const cands: Array<fc.Value<RunSample>> = [];
-        for (let i = 0; i < cfg.batchSize; i++) {
+        for (let i = 0; i < size; i++) {
           const n = stream.next();
           if (n.done === true) break;
           cands.push(n.value);
         }
         if (cands.length === 0) break;
-        const ev = await this.evaluate(cands.map((c) => c.value), token, true);
+        // Probes (Tier 1 cross-engine checks) run on every search batch and on confirmation, not on shrink candidates.
+        const ev = await this.evaluate(cands.map((c) => c.value), token, false);
         const hit = cands.findIndex((_c, j) => this.check(ev, j) !== null);
         if (hit >= 0) {
           accepted = cands[hit] ?? null;

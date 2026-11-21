@@ -33,7 +33,7 @@ export async function openNodeDuckDB(): Promise<DuckDBConnection> {
 export const MACROS = [
   'CREATE OR REPLACE MACRO suture_m32(x) AS (x::UBIGINT & 4294967295::UBIGINT)',
   'CREATE OR REPLACE MACRO suture_xs(x, s) AS xor(x, x >> s)',
-  'CREATE OR REPLACE MACRO suture_mul(x, c) AS ((x::HUGEINT * c) % 4294967296)::UBIGINT',
+  'CREATE OR REPLACE MACRO suture_mul(x, c) AS ((x::UBIGINT * c::UBIGINT) & 4294967295::UBIGINT)',
   'CREATE OR REPLACE MACRO suture_h32(x) AS suture_xs(suture_mul(suture_xs(suture_mul(suture_xs(suture_m32(x), 16), 2146121005), 15), 2221713035), 16)',
   'CREATE OR REPLACE MACRO suture_u01(i, stream) AS suture_h32(xor(suture_m32(i), suture_h32(suture_m32(stream + 2654435769)))) / 4294967296.0',
 ];
