@@ -11,15 +11,20 @@ Suture is a zero-backend, local-first spreadsheet engine. Every computation runs
 | Package | Purpose | Allowed runtime APIs |
 |---|---|---|
 | `packages/core` | DAG, scheduler, formula evaluation, `CellValue` contract, coercion, error propagation, engine port interfaces | ECMAScript only (ES2022 lib). No DOM, no Node built-ins. |
-| `packages/web` | Vite + React + Tailwind UI, Web Worker engine adapters (DuckDB-WASM, Pyodide) | Browser APIs |
-| `packages/cli` | Command-line host for `core` | Node.js APIs |
-| `packages/mcp` | Model Context Protocol server host for `core` | Node.js APIs |
+| `packages/runtime` | The one copy of the engine code every host runs: DuckDB-WASM / Pyodide / ingest handlers (`engines`), wire protocol, bridges, trust gate (`bridge`), flagship workbooks (`workbooks`), the CLI/MCP operations (`headless`), and the in-process Node host (`node`) | ES2022 plus the web-platform globals browsers and Node 22 share; Node.js APIs only in `src/node/` |
+| `packages/web` | Vite + React + Tailwind UI, Web Worker entries, `EngineHost`, the browser engine loaders | Browser APIs |
+| `packages/cli` | `suture` command-line host for `core` and `runtime` | Node.js APIs |
+| `packages/mcp` | `suture-mcp` Model Context Protocol server host for `core` and `runtime` | Node.js APIs |
 
 ### `packages/core` purity rules
 - `core` must run identically in the browser, the CLI, the MCP server, and Kiro agent sessions.
 - Never reference `window`, `document`, `self`, `globalThis.document`, `navigator`, `localStorage`, `Worker`, `postMessage`, `fetch`, or any Node module (`fs`, `path`, `worker_threads`, `process`).
 - `core/tsconfig.json` uses `"lib": ["ES2022"]` with no `"DOM"` entry and `"types": []`, so a forbidden global is a compile error rather than a review finding.
-- `core` defines engine *ports* (TypeScript interfaces such as `SqlEngine` and `PyEngine`). Hosts (`web`, `cli`, `mcp`) provide *adapters*. `core` never imports from another package; dependencies point inward only: `web | cli | mcp -> core`.
+- `core` defines engine *ports* (TypeScript interfaces such as `SqlEngine` and `PyEngine`). Hosts (`web`, `cli`, `mcp`) provide *adapters*. `core` never imports from another package; dependencies point inward only: `web | cli | mcp -> runtime -> core`.
+
+### `packages/runtime` rules
+- Engine handlers, the wire protocol, the bridges, the trust gate, and the flagship workbooks exist once, in `runtime`. A host never copies them.
+- `runtime` has no root entry. The web main thread imports only `bridge`, `workbooks`, and `headless`, never `engines` or `node`, so engine code cannot reach the main chunk.
 - Time and randomness are injected (clock and seed parameters), never read from globals, so evaluation is deterministic and replayable under `fast-check`.
 
 ### TypeScript rules (all packages)
@@ -29,7 +34,7 @@ Suture is a zero-backend, local-first spreadsheet engine. Every computation runs
 
 ## 2. Worker isolation
 
-- DuckDB-WASM and Pyodide MUST NEVER be instantiated or executed on the main UI thread. Each runs in its own dedicated Web Worker in `packages/web`.
+- DuckDB-WASM and Pyodide MUST NEVER be instantiated or executed on the main UI thread. In the browser, each runs in its own dedicated Web Worker started by `packages/web`. The Node hosts have no UI thread and run them in-process (§7).
 - The main thread owns only: React rendering, input handling, the virtualized grid, and message routing.
 - `core` may evaluate literal and formula cells on the main thread for the **whole dirty set**, not only visible cells, because off-screen cells feed visible KPIs and assertions. It does so in synchronous slices of at most 8 ms, yielding to the event loop between slices (`RecalcOptions.sliceMs` + `EngineDeps.yieldControl`) to preserve 60 fps. Any evaluation that awaits an engine is asynchronous and never blocks a frame.
 - **Zero nested workers.** No worker ever creates another worker. The main thread creates every worker (DuckDB, Pyodide, ingest, Exorcist) as a top-level dedicated worker, and workers reach each other only through `MessageChannel` ports handed out by the main thread. This also rules out engine builds that spawn their own sub-workers, such as DuckDB's pthread (COI) bundle.
@@ -68,10 +73,18 @@ Cross-Origin-Embedder-Policy: credentialless
 
 - The repository is MIT. Only MIT, Apache-2.0, BSD, or ISC dependencies are allowed. The one named exception is `pyodide` (MPL-2.0), approved because it is used as an unmodified runtime loaded in a worker and is never vendored or modified.
 - **Forbidden:** any GPL, LGPL, or AGPL dependency, including HyperFormula.
-- **Approved core libraries:** `fast-formula-parser` (MIT), `@formulajs/formulajs` (MIT), `@duckdb/duckdb-wasm` (MIT), `apache-arrow` (Apache-2.0), `pyodide` (MPL-2.0 runtime, loaded in a worker), `fast-check` (MIT), `exceljs` (MIT).
+- **Approved core libraries:** `fast-formula-parser` (MIT), `@formulajs/formulajs` (MIT), `@duckdb/duckdb-wasm` (MIT), `apache-arrow` (Apache-2.0), `pyodide` (MPL-2.0 runtime, loaded in a worker in the browser and in-process in the Node hosts), `fast-check` (MIT), `exceljs` (MIT).
+- **Approved MCP libraries (`packages/mcp` only):** `@modelcontextprotocol/server` and `@modelcontextprotocol/core` (Apache-2.0), and `zod` (MIT). Together they add 3 packages (Spec 05 §5.1).
 - **Pyodide packages:** NumPy only. `pyodide.loadPackage` is called with `numpy` and nothing else. SciPy, pandas, and pyarrow are forbidden.
 - Adding a runtime dependency outside this list requires an explicit license check recorded in the PR description.
 
 ## 6. Kiro configuration is tracked
 
 `.kiro/` (steering, agents, hooks, specs, audit) is part of the source of truth. It is never added to `.gitignore`.
+
+## 7. Python and engines in Node hosts
+
+- The CLI and the MCP server run DuckDB-WASM and Pyodide **in-process** (`@suture/runtime/node`). Nothing can interrupt a kernel that never returns, so such a cell blocks the command. A `worker_threads` host with interrupt buffers is a tracked follow-up (Spec 05 task 5.1).
+- Under Node, Pyodide's JavaScript bridge reaches the host process: Python in a `=PY()` cell can call `js.process.getBuiltinModule("fs")` (verified on Pyodide 314.0.8, Node 22). Python in a Node host therefore runs with the user's privileges.
+- So Node hosts run `=PY()` cells only for the built-in flagships, or when the caller explicitly trusts the workbook (`--trust-python` / `trustPython: true`). Otherwise those cells evaluate to `#PY!` ("Python is blocked until you trust this workbook") and Pyodide never starts. Never trust by default, and never auto-approve an MCP tool that can run workbook Python.
+- MCP tool arguments are untrusted input: narrow them with a schema, and resolve workbook paths inside the workspace root only. stdout carries only JSON-RPC.

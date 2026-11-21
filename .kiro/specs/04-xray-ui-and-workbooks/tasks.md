@@ -1,19 +1,19 @@
 # Tasks: X-Ray UI & Flagship Workbooks
 
-Unit tests run with `npx vitest --run` in `packages/web`. End-to-end tests run with Playwright on Chromium, and on WebKit where a task says so. Do not use watch mode. Every e2e test that checks Req 1.5 registers a `PerformanceObserver` for `longtask` and fails on any task over 50 ms (scoped to scrolling, typing, and X-Ray rendering, steering §3; `e2e/app.ts` `withinFrameBudget`).
+Unit tests run with `npx vitest --run` in `packages/web` (and the real-engine tests in `packages/runtime`). End-to-end tests run with Playwright on Chromium, and on WebKit where a task says so. Do not use watch mode. Every e2e test that checks Req 1.5 registers a `PerformanceObserver` for `longtask` and fails on any task over 50 ms (scoped to scrolling, typing, and X-Ray rendering, steering §3; `e2e/app.ts` `withinFrameBudget`).
 
 Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readiness pill, store), 1314edf (grid, formula bar), f30f2fa (inspector, drawer, slice retired), 945de70 (X-Ray), 89b607e (Exorcist Audit Studio), 5ea37ff (drag-and-drop, trademark scan), 406c315 (journeys).
 
-- [ ] 1. App shell and state
+- [x] 1. App shell and state
   - [x] 1.1 Create `packages/web` (Vite, React, Tailwind) with the steering design tokens in the Tailwind theme and a check banning hex colors in `src/**/*.tsx`.
     - Verify: a component with a hex color fails the check; the tokens resolve and meet contrast.
     - _Requirements: 11.1_
     - Evidence: 68bccbb — `test/hexColors.test.ts` (a Vitest source scan replaces the ESLint rule, so no lint dependency is added) and `test/contrast.test.ts` (Phase 4 palette values; every text token ≥ 4.5:1 on every surface).
-  - [ ] 1.2 Implement `AppStore`, `Action` handling, and the main-thread `WorkbookEngine` with `sliceMs: 8` and a `MessageChannel` `yieldControl`.
+  - [x] 1.2 Implement `AppStore`, `Action` handling, and the main-thread `WorkbookEngine` with `sliceMs: 8` and a `MessageChannel` `yieldControl`.
     - Verify: a 20,000-formula sheet recalculates with no long task over 50 ms; edits produce the expected snapshots.
     - _Requirements: 1.5; Spec 01 Req 10.7_
     - Evidence: 68bccbb — `app/store.ts`; Journeys 1–3 (406c315) find no task over 50 ms while scrolling, typing, or rendering X-Ray.
-    - Status: Partial. The 20,000-formula check exists as a `test.fixme` in `e2e/journeys.spec.ts` and fails with one ~111 ms task. Measured in Node on the same fan-out: core `applyEdits` rebuilds the whole graph (~25 ms) and `recalculate` spends ~50 ms before its first 8 ms slice. The fix is a Spec 01 scheduler change (incremental graph rebuild, sliced preamble).
+    - Evidence (Phase 5): 354e0c1 (incremental graph, sliced preamble) and aa49a8f (the store re-indexes only edited cells; large tables tracked from commit events). The `test.fixme` is removed. In `e2e/journeys.spec.ts`, editing the input of 20,000 formulas runs with 0 main-thread tasks over the unchanged 50 ms limit (5 of 5 local repeats; warm recalculation 103–117 ms).
 
 - [x] 2. Grid
   - [x] 2.1 Implement `grid/viewport.ts` (scaling, prefix sums, `visibleWindow`, `cellRect`).
@@ -29,12 +29,12 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
     - _Requirements: 1.3, 1.6, 11.3_
     - Evidence: 1314edf; Journey 3 covers every Req 1.3 key, type-to-edit, Delete, and `aria-rowcount`. `axe-core` is MPL-2.0 and not allowed by the license policy, so it is not used.
 
-- [ ] 3. Formula bar and inspector
-  - [ ] 3.1 Implement `FormulaBar` (name box navigation, commit and cancel, multi-line mode for `=SQL(`/`=PY(`).
+- [x] 3. Formula bar and inspector
+  - [x] 3.1 Implement `FormulaBar` (name box navigation, commit and cancel, multi-line mode for `=SQL(`/`=PY(`).
     - Verify: an e2e covers name-box navigation to `Margins!B5` and to a defined name, Escape discarding the draft, and Shift+Enter inserting a newline in a `=PY(` draft.
     - _Requirements: 2.1–2.4_
     - Evidence: 1314edf — `grid/FormulaBar.tsx`; every journey navigates with the name box; Journey 3 covers the multi-line `=PY(` draft, Shift+Enter, and Escape.
-    - Status: Partial. Defined-name navigation is implemented (`AppStore.goTo`), but no shipped workbook defines a name, so no e2e exercises it yet.
+    - Evidence (Phase 5): aa49a8f — the 20,000-formula test's document defines `Driver` → `Load!A1`; typing `driver` in the name box selects `Load!A1` (`aria-selected`).
   - [x] 3.2 Implement `CellInspector` (dialect and engine badge, error details with an origin link, a 100-row `TableRef` preview, a `Matrix2D` table, precedents and dependents, assertions).
     - Verify: inspecting `Orders!A1` in flagship 2 decodes only 100 rows (instrumented row counter); clicking an error origin selects it.
     - _Requirements: 3.1–3.5_
@@ -45,7 +45,8 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
     - Verify: a unit test maps every `EngineState` per design §4; an e2e on a fresh page shows `Grid: Ready | DuckDB: Lazy | Python/NumPy: Lazy`, then `Loading` and `Ready` after the first `=SQL()`; an unisolated page shows `Degraded (restart on timeout)` for both engines with the full reason in the accessible name; after a crash respawn the label goes `Loading` → `Ready`, never back to `Lazy`; a known-length download shows a percentage and an unknown-length one does not.
     - _Requirements: 4.1–4.6_
     - Evidence: 68bccbb — `chrome/ReadinessPill.tsx`, `test/ui.test.ts` (every state, the colon form, percentage only with a known total, accessible name with reason); Journey 3 (Blank: both Lazy, then `Loading → Ready`, never back to Lazy; telemetry popover fields).
-    - Status: Partial. The unisolated-page label and the post-crash label sequence are covered at the engine level (`e2e/hardening.spec.ts`), but not yet on the app page.
+    - Evidence (Phase 5): aa49a8f and the docs commit — `e2e/journeys.spec.ts` "Req 4.1" opens the app page without COOP/COEP. Both engines start `Lazy`, then each shows `Degraded (restart on timeout)` once it loads (DuckDB on the first `=SQL()`, Python on the first `=PY()`), with the full reason in the pill's accessible name, `crossOriginIsolated: false` and the degraded note in the popover, and both cells evaluate.
+    - Status: Partial. The post-crash label sequence (`Loading` → `Ready`, never `Lazy`) is still covered only at the engine level (`e2e/hardening.spec.ts`), not on the app page.
 
 - [x] 5. X-Ray
   - [x] 5.1 Implement `xray/geometry.ts` (`threadCurve`, `splitAt`, `brokenThread`).

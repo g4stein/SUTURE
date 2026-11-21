@@ -125,6 +125,23 @@ describe('time-sliced recalculation (Req 10.7)', () => {
     );
   });
 
+  it('Spec 01 task 7.5: with a clock advancing 1 ms per evaluated cell and sliceMs 8, 1,000 cells yield 124 or 125 times', async () => {
+    let now = 0;
+    let yields = 0;
+    const deps: EngineDeps = { ...formulaOnlyDeps, clock: { now: () => now }, yieldControl: () => { yields++; return Promise.resolve(); } };
+    const def: WorkbookDefinition = {
+      sheets: [{ name: 'S', cells: [{ key: key('S', 'A1'), raw: '1' }, ...Array.from({ length: 999 }, (_, i) => ({ key: key('S', `B${i + 1}`), raw: `=A1+${i}` }))] }],
+      names: [], datasets: [], seed: 1,
+    };
+    const sliced = createWorkbookEngine(def, deps);
+    sliced.subscribe((ev) => { if (ev.kind === 'cellCommitted') now += 1; });
+    await sliced.recalculateAll({ ...OPTS, sliceMs: 8 });
+    expect([124, 125]).toContain(yields);
+    const plain = createWorkbookEngine(def, formulaOnlyDeps);
+    await plain.recalculateAll(OPTS);
+    for (const s of def.sheets) for (const c of s.cells) expect(sameValue(sliced.getValue(c.key) as CellValue, plain.getValue(c.key) as CellValue)).toBe(true);
+  });
+
   const N = 5000;
   const fanOut = (): WorkbookDefinition => ({
     sheets: [{ name: 'Load', cells: [{ key: key('Load', 'A1'), raw: '1' }, ...Array.from({ length: N }, (_, i) => ({ key: key('Load', `B${i + 2}`), raw: `=$A$1*${i + 2}` }))] }],

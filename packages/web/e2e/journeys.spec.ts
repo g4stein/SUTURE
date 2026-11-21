@@ -453,10 +453,10 @@ test('Journey 5 — 390×844: no horizontal overflow, Exorcise stays reachable, 
 
 /**
  * Spec 04 Req 4.1 / 4.4, task 4.1: the app page served WITHOUT COOP/COEP (the e2e build's unisolated origin) shows the
- * honest degraded label on the pill, the full reason in its accessible name, and the crossOriginIsolated-based note in
- * the popover, while SQL still evaluates and Python stays Lazy until used.
+ * honest degraded label for each engine once it loads (Python stays Lazy until the first =PY()), the full reason in the
+ * pill's accessible name, and the crossOriginIsolated-based note in the popover, while both engines still evaluate.
  */
-test('Req 4.1 — unisolated app page: Lazy → Degraded (restart on timeout) on the pill, plain-words reason, SQL still works', async ({ page }) => {
+test('Req 4.1 — unisolated app page: Lazy → Degraded (restart on timeout) for DuckDB and Python, plain-words reason, both engines still evaluate', async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto(`${HARNESS_NO_ISOLATION_ORIGIN}/?workbook=blank`);
   await expect(page.getByTestId('pill-grid')).toHaveText('Grid: Ready');
@@ -467,7 +467,12 @@ test('Req 4.1 — unisolated app page: Lazy → Degraded (restart on timeout) on
   await expect(page.getByTestId('pill-duckdb')).toHaveAttribute('data-state', 'degraded');
   await expect(page.getByTestId('pill-duckdb')).toHaveText('DuckDB: Degraded (restart on timeout)');
   await expect(page.getByTestId('pill-pyodide')).toHaveText('Python/NumPy: Lazy');
+  await setCell(page, 'Sheet1!A2', '=PY("6 * 7")');
+  await expect(value(page, 'Sheet1!A2')).toHaveText('42', { timeout: 120_000 });
+  await expect(page.getByTestId('pill-pyodide')).toHaveAttribute('data-state', 'degraded');
+  await expect(page.getByTestId('pill-pyodide')).toHaveText('Python/NumPy: Degraded (restart on timeout)');
   await expect(page.getByTestId('readiness-pill')).toHaveAttribute('aria-label', /DuckDB: Degraded \(restart on timeout\)\. DuckDB: timeouts restart the engine \(page is not cross-origin isolated\)/);
+  await expect(page.getByTestId('readiness-pill')).toHaveAttribute('aria-label', /Python\/NumPy: Degraded \(restart on timeout\)\. Python\/NumPy: timeouts restart the engine \(page is not cross-origin isolated\)/);
   await page.getByTestId('readiness-pill').click();
   await expect(page.getByTestId('tm-coi')).toHaveText('false');
   await expect(page.getByTestId('tm-degraded-note')).toContainText('not cross-origin isolated');

@@ -2,6 +2,8 @@
 
 Each task is done when its "Verify" check passes. Run tests with `npx vitest --run` in `packages/core`. Do not use watch mode.
 
+Phase 5 moved the real-engine tests and the engine code from `packages/web` to `packages/runtime` (Spec 05 task 1.1). Evidence paths below name each file where it was at the cited commit.
+
 - [ ] 1. Package scaffold and purity gate
   - [x] 1.1 Create `packages/core` with `tsconfig.json` (`"lib": ["ES2022"]`, `"types": []`, `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) and Vitest config.
     - Verify: `npx tsc --noEmit -p packages/core` passes on an empty `src/index.ts`, and a probe file referencing `window` fails to compile.
@@ -80,7 +82,7 @@ Each task is done when its "Verify" check passes. Run tests with `npx vitest --r
   - [ ] 6.1 Implement `graph/depGraph.ts` and `graph/rangeIndex.ts` (column buckets of 64).
     - Verify: inserting a cell inside 10,000 registered ranges reports exactly the containing ranges, and the benchmark asserts under 1 ms per lookup on Node.
     - _Requirements: 10.1_
-    - Status: Partial: dependency graph implemented; `RangeIndex` column buckets are not (range dependents are a linear scan).
+    - Status: Partial. Since 354e0c1 the graph is maintained incrementally (only edited cells re-link; created or deleted cells re-link their range dependents), checked against a rebuilt graph by `scheduler.pbt.test.ts` (300 random edit batches). Range lookups walk the range or scan the cells; the column-bucket `RangeIndex` and its 10,000-range benchmark are not built.
   - [x] 6.2 Implement iterative Tarjan and shortest-cycle paths.
     - Verify: tests cover a 1,000,000-node chain without stack overflow, `A1 -> B2 -> C1 -> A1`, a self-reference, `SUM(A1:A10)` in `A5`, an SCC with two cycles where each member's path is the shortest through it, and deterministic tie-breaks.
     - _Requirements: 9.1, 9.2, 9.3_
@@ -104,10 +106,10 @@ Each task is done when its "Verify" check passes. Run tests with `npx vitest --r
     - Verify: with a controllable port, edit A then edit B before A's request resolves: A's request is cancelled if dirty, otherwise re-tagged, and no stale commit occurs.
     - _Requirements: 10.3, 10.4, 10.5, 10.6_
     - Status: Partial: generations, cancel and re-tag implemented in `schedule/engine.ts`; the controllable-port supersession test is pending.
-  - [ ] 7.5 Implement time slicing (`sliceMs`, `yieldControl`).
+  - [x] 7.5 Implement time slicing (`sliceMs`, `yieldControl`).
     - Verify: with an injected clock advancing 1 ms per cell and `sliceMs = 8`, a 1,000-cell recalculation yields 124 or 125 times, and its values equal the `sliceMs = 0` run.
     - _Requirements: 10.7_
-    - Status: Partial: `sliceMs` + `yieldControl` implemented and used by the web host (`sliceMs: 8`); the injected-clock yield-count test is pending.
+    - Evidence: 354e0c1 and the Phase 5 docs commit. `scheduler.pbt.test.ts` covers four things: the 1,000-cell yield count (124 or 125, values equal `sliceMs = 0`); identical commit order and cycles with and without yielding (300 runs); a 5,000-formula fan-out yielding before its first commit; and a generation superseded mid-preamble handing over its frontier. The slice clock now starts when `recalculate` is called and covers every phase (design §7.3). The Spec 04 E2E edits 20,000 formulas with no main-thread task over 50 ms.
   - [x] 7.6 Implement cycle commit and recovery when a cycle edge is removed.
     - Verify: create the cycle, then break it: all members and dependents recompute, and no `#CYCLE!` remains.
     - _Requirements: 9.4, 9.5_

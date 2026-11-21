@@ -427,9 +427,16 @@ export interface DepGraph {
 - `RangeIndex` stores the ranges of each sheet in column buckets of width 64, each holding row intervals. When a cell is created, edited, or cleared, it finds the ranges containing that cell in O(log n + k).
 - A range node whose range contains its own referencing cell creates a cycle. This is how `=SUM(A1:A10)` in `A5` is detected.
 
+**As built (`schedule/engine.ts`).** The graph lives inside the engine as key-based maps rather than a separate `DepGraph` with node ids:
+- `prec: Map<CellKey, CellKey[]>` holds each cell's precedents, sorted row-major. Cell references create an edge even when the target cell is empty; a range reference contributes its *existing* members. `deps` is the exact reverse map, and `rangeRefs` holds each cell's range references.
+- **Incremental maintenance.** `applyEdits` re-links only the edited cells. When an edit creates or deletes a cell, it also re-links the cells whose range references contain it. Only structural edits (`setName`, `removeName`, `addSheet`, `removeSheet`, `registerDataset`, `dropDataset`) re-parse every formula and rebuild the graph. `graphVersion()` moves only when an edge actually changes. A property test checks that the maintained graph equals a rebuilt one after random edit batches with ranges, clears, and cycles (`scheduler.pbt.test.ts`).
+- **Dependents.** `dependents(key)` is the reverse edges plus, for an empty key, the cells whose ranges contain it (so clearing a range member still dirties the range's dependents). Results are cached sorted per key and invalidated when that key's reverse edges change, or wholesale when any range reference changes.
+- **Range lookups.** These walk the range when its area is smaller than the cell count, else scan the cells. The column-bucket `RangeIndex` is still not built (task 6.1).
+
 ### 7.2 Cycles (`graph/tarjan.ts`)
 
-- An iterative Tarjan SCC (no recursion, so 1M-node chains don't overflow the stack) runs over the subgraph reachable from the dirty set.
+- An iterative Tarjan SCC (no recursion, so 1M-node chains don't overflow the stack) runs over the part of the dirty set that a Kahn peel cannot order (§7.3 step 3). Every strongly connected component of the dirty graph lies inside that remainder, so when everything peels (the usual case) there is no cycle and Tarjan does not run.
+- `RecalcResult.cycles` is ordered by each report's first member, row-major.
 - For every SCC of size ≥ 2, and every self-loop, each member cell `c` gets a cycle path. It is the shortest cycle through `c` found by BFS from `c`'s successors back to `c`, restricted to the SCC and expanding successors in sorted order. Range nodes are collapsed out of the printed path.
 
 ```ts
@@ -492,15 +499,15 @@ export interface EngineDeps {
 export function createWorkbookEngine(def: WorkbookDefinition, deps: EngineDeps): WorkbookEngine;
 ```
 
-Algorithm for one generation `g`:
-1. Compute `dirty = closure(dependents, editedCells)`.
-2. Run Tarjan over `dirty` (§7.2). Commit `#CYCLE!` for SCC members.
-3. Compute in-degrees restricted to `dirty \ cycleMembers`.
+Algorithm for one generation `g`. `applyEdits` only updates the edited cells' edges (§7.1) and records the edited keys as the dirty **frontier**; everything below runs inside `recalculate`, whose slice clock starts when it is called. With `sliceMs > 0`, every step checks the clock every 64 graph steps and awaits `deps.yieldControl()` once the slice is spent, so the first task after an edit ends within one slice plus one cell. With `sliceMs = 0` (Node hosts, the Exorcist, tests) nothing yields and nothing reads the clock.
+1. Expand the frontier: `dirty = closure(dependents, frontier)` added to the cells still dirty from an unfinished generation. Each newly dirty cell's in-flight engine request is cancelled here, before generation `g` dispatches anything (Req 10.4). If `g` is superseded mid-expansion, the unexpanded frontier stays for the generation that superseded it.
+2. Drop the values of deleted cells.
+3. Compute in-degrees over `dirty` and peel (Kahn without evaluation, self-edges counted). If cells remain, run Tarjan over them (§7.2), commit `#CYCLE!` for SCC members, and recompute in-degrees restricted to `dirty \ cycleMembers`.
 4. Push the ready cells into a binary heap keyed by row-major order, or, in seeded mode, by `mix32(seed, fnv1a32(cellKey))` with row-major order breaking hash ties (§9). Keys come from cell content rather than from node ids, which depend on insertion history, so a seeded order can be reproduced from the seed alone. A range node has no value of its own and is released as soon as its in-degree reaches zero, without entering the heap.
 5. Pop a cell `c`. If `sliceMs > 0` and `clock.now()` minus the slice start is at least `sliceMs`, first `await deps.yieldControl()` and start a new slice. Yielding never reorders evaluation, so it cannot affect values.
    - **literal / formula:** evaluate synchronously, then commit.
    - **sql / py:** resolve inputs. If an input is an error, commit it (Req 3.7, 4.6). Otherwise dispatch `SqlEngine.evaluate` / `PyEngine.evaluate` with the generation's token, and mark `c` pending.
-   - When `c` commits, decrement its dependents' in-degrees and push the ones that become ready.
+   - When `c` commits, decrement its dependents' in-degrees and push the ones that become ready. A release can span a yield; no cell is popped until it finishes. A deleted cell releases only the cells that list it as a precedent.
 6. When an engine outcome arrives: if `generation` is still current for that cell, commit `value` and continue step 5. Otherwise discard it (Req 10.5).
 7. When the heap is empty and nothing is pending, emit `generationComplete`.
 

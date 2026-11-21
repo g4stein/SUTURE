@@ -49,22 +49,16 @@ flowchart LR
 - The DuckDB↔Pyodide peer port is created by the host and handed to both workers.
 - Table bytes for Python inputs travel DuckDB → Pyodide over the peer port and never pass through main-thread application logic.
 
-File layout (`packages/web/src/workers/`):
-- `protocol.ts` (all message types and type guards);
-- `portClient.ts`;
-- `engineHost.ts`;
-- `bridges.ts` (`SqlBridge` and `PyBridge`, implementing the core ports);
-- `duckdbHandler.ts`, `duckdbIpc.ts`, `sqlValidate.ts`, and `datasetName.ts` (host-agnostic DuckDB request handling);
-- `duckdbBrowser.ts` and a thin `duckdb.worker.ts`;
-- `pyodideHandler.ts` with `python/suture_bridge.py` (embedded as a string at build time), `pyodideBrowser.ts`, and a thin `pyodide.worker.ts`;
-- `ingestHandler.ts` and a thin `ingest.worker.ts`;
-- `workerRuntime.ts` (the shared message loop), `arrowColumns.ts`, and `isolation.ts`.
+File layout. Since Phase 5 (Spec 05 §2) the host-agnostic code lives in `packages/runtime` (`@suture/runtime`), so the web app, the CLI, and the MCP server run one copy of it:
+- `@suture/runtime/bridge` (`packages/runtime/src/bridge/`): `protocol.ts` (all message types and type guards), `job.ts` (`Job`, `JobHandler`, `FatalEngineError`, `ticketOf`), `client.ts` (the `EngineClient` contract, `RequestOptions`, `DeadlineExceeded`, `EngineCrashed`), `bridges.ts` (`SqlBridge` and `PyBridge`, implementing the core ports), `isolation.ts`, `datasetName.ts`, and `gatedPy.ts`;
+- `@suture/runtime/engines` (`packages/runtime/src/engines/`): `duckdbHandler.ts`, `duckdbIpc.ts`, `sqlValidate.ts` (host-agnostic DuckDB request handling), `pyodideHandler.ts` with `python/suture_bridge.py`, `arrowColumns.ts`, and `ingestHandler.ts`;
+- `packages/web/src/workers/` (browser only): `portClient.ts` (the `PortClient` transport), `engineHost.ts`, `workerRuntime.ts` (the worker message loop), `duckdbBrowser.ts` and a thin `duckdb.worker.ts`, `pyodideBrowser.ts` (embeds the bridge with Vite `?raw`) and a thin `pyodide.worker.ts`, and a thin `ingest.worker.ts`.
 
 ### 1.1 Host-agnostic handlers
 
 Each engine's request handling is written once, with no DOM or worker globals. Only the code that opens the engine differs per host:
 - **Browser:** `duckdbBrowser.ts` and `pyodideBrowser.ts` instantiate the WASM builds, and each `*.worker.ts` file only wires a handler to the worker message loop.
-- **Node tests:** `test/hosts/nodeEngines.ts` instantiates DuckDB's Node build and Pyodide with NumPy, and connects the same handlers through a `DirectClient` that implements the `PortClient` contract in-process.
+- **Node (tests, CLI, MCP):** `@suture/runtime/node` (`packages/runtime/src/node/engines.ts`) instantiates DuckDB's Node build and Pyodide with NumPy, and connects the same handlers through a `DirectClient` that implements the `EngineClient` contract in-process, booting each engine on first use. In-process execution has no interrupt: a kernel that never returns blocks the Node host (Spec 05 Req 2.6).
 
 So the Node real-engine tests (flagships, slice, Option C) exercise the production handler code, not a mock. Production code contains no fault-injection hooks. The E2E harness builds separate chaos workers (`e2e/harness/*.chaos.worker.ts`) with `vite.e2e.config.ts`, injects them through `WorkerFactory` (§7), and writes them to `dist-e2e/`, which never ships.
 
@@ -674,7 +668,7 @@ A known-answer test checks `suture_h32` against core's lowbias32 finalizer on 10
 
 ### 5.5 Execution
 
-`conn.useUnsafe((bindings, id) => …)`: `createPrepared` → `sendPrepared(params)` (schema + first chunk, as Arrow IPC bytes) → `fetchQueryResults` until empty, checking the cancel flag (§6.2) before each chunk → append the IPC end-of-stream marker → `closePrepared`. The result is DuckDB's own Arrow IPC stream, concatenated without decoding (`packages/web/src/workers/duckdbIpc.ts`).
+`conn.useUnsafe((bindings, id) => …)`: `createPrepared` → `sendPrepared(params)` (schema + first chunk, as Arrow IPC bytes) → `fetchQueryResults` until empty, checking the cancel flag (§6.2) before each chunk → append the IPC end-of-stream marker → `closePrepared`. The result is DuckDB's own Arrow IPC stream, concatenated without decoding (`packages/runtime/src/engines/duckdbIpc.ts`).
 
 Why not `stmt.send()` + `tableToIPC(new Table(batches))`: verified in Phase 2, re-encoding DuckDB's result `Table` with the application's `apache-arrow` produced IPC that `insertArrowFromIPCStream` silently ignored (no table created) or rejected ("must have at least one column"). The raw-bytes path has no Arrow object round-trip, makes no extra copy, and the slice dataset test ran about 30× faster with it (1.5 s vs 53 s).
 
