@@ -156,6 +156,7 @@ export function createPyodideHandler(env: PyodideHandlerEnv): JobHandler {
         await py.loadPackage(['numpy'], { messageCallback: () => undefined, errorCallback: () => undefined });
         if (r.payload.interruptBuffer !== null) {
           interrupt = new Int32Array(r.payload.interruptBuffer);
+          Atomics.store(interrupt, 0, 0); // defensive: never inherit a pending SIGINT from a previous worker
           py.setInterruptBuffer(interrupt);
         }
         progress('bootstrap', 0, null);

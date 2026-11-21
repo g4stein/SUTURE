@@ -208,6 +208,7 @@ export class PortClient implements EngineClient {
   }
 
   failAll(reason: string): void {
+    this.held = [];
     for (const [id, p] of this.pending) {
       this.pending.delete(id);
       p.reject(new EngineCrashed(reason));

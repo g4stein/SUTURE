@@ -1,29 +1,15 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { isCellError, type CellKey, type CellValue, type EngineId, type ReplayArtifact, type ViolatedAssertion } from '@suture/core';
-import type { AppSnapshot, AppStore } from './store.ts';
+import { WORKBOOKS, type AppSnapshot, type AppStore, type CellRow, type WorkbookId } from './store.ts';
 import { engineLabel, formatScalar, formatValue } from './format.ts';
-import { A1_SQL, B1_PY, E1_SQL, k } from '../slice/sliceDocument.ts';
 import type { EngineStatus } from '../workers/protocol.ts';
 
+/**
+ * Temporary Phase 3 verification UI (workbook picker, generic cell list, file import). Phase 4 replaces it with the
+ * virtualized grid and X-Ray overlay of Spec 04; the store, engines, and workers stay.
+ */
 const ENGINE_TEXT: Readonly<Record<EngineId, string>> = { sql: 'text-engine-sql', py: 'text-engine-py', formula: 'text-engine-formula' };
 const ENGINE_BORDER: Readonly<Record<EngineId, string>> = { sql: 'border-engine-sql', py: 'border-engine-py', formula: 'border-engine-formula' };
-
-interface RowSpec {
-  readonly cell: CellKey;
-  readonly label: string;
-  readonly engine: EngineId;
-  readonly source: string;
-  readonly editable: boolean;
-}
-
-const ROWS: ReadonlyArray<RowSpec> = [
-  { cell: k('C1'), label: 'Starting cash', engine: 'formula', source: 'literal', editable: true },
-  { cell: k('C2'), label: 'Churn shock ×', engine: 'formula', source: 'literal', editable: true },
-  { cell: k('E1'), label: '10,000 synthesized orders', engine: 'sql', source: E1_SQL, editable: false },
-  { cell: k('A1'), label: 'Monthly revenue / cost', engine: 'sql', source: A1_SQL, editable: false },
-  { cell: k('B1'), label: 'Projected net burn (OLS, month 13)', engine: 'py', source: B1_PY, editable: false },
-  { cell: k('D1'), label: 'Runway (months) = C1 / B1', engine: 'formula', source: '=C1/B1', editable: false },
-];
 
 function Pill({ s, name }: { readonly s: EngineStatus; readonly name: string }): ReactNode {
   const label = engineLabel(s);
@@ -50,16 +36,19 @@ function ReadinessPill({ snap }: { readonly snap: AppSnapshot }): ReactNode {
 
 function Telemetry({ snap }: { readonly snap: AppSnapshot }): ReactNode {
   const t = snap.telemetry;
-  const item = (label: string, value: string, testid: string): ReactNode => (
-    <span className="whitespace-nowrap"><span className="text-ink-muted">{label}</span> <span className="text-ink" data-testid={testid}>{value}</span></span>
+  const ms = (v: number | null): string => (v === null ? '—' : `${v} ms`);
+  const item = (label: string, value: string, testid: string, title?: string): ReactNode => (
+    <span className="whitespace-nowrap" title={title}><span className="text-ink-muted">{label}</span> <span className="text-ink" data-testid={testid}>{value}</span></span>
   );
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-slate-line bg-slate-surface px-6 py-2 font-mono text-xs tabular" data-testid="telemetry">
       {item('crossOriginIsolated', String(snap.isolation.crossOriginIsolated), 'tm-coi')}
       {item('SQL validator', t.validator ?? '—', 'tm-validator')}
-      {item('DuckDB init', t.duckdbInitMs === null ? '—' : `${t.duckdbInitMs} ms`, 'tm-duckdb-ms')}
-      {item('Pyodide init', t.pyodideInitMs === null ? '—' : `${t.pyodideInitMs} ms`, 'tm-pyodide-ms')}
-      {item('last DAG eval', snap.lastEvalMs === null ? '—' : `${snap.lastEvalMs} ms`, 'tm-eval-ms')}
+      {item('cold boot DuckDB', ms(t.duckdbInitMs), 'tm-duckdb-ms', 'worker start → engine ready (WASM download, compile, init)')}
+      {item('cold boot Pyodide', ms(t.pyodideInitMs), 'tm-pyodide-ms', 'worker start → Python + NumPy ready')}
+      {item('first eval', ms(snap.evals.firstEvalMs), 'tm-first-eval-ms', 'first recalculation of this workbook, including any engine boot it triggered')}
+      {item('warm DAG eval', ms(snap.evals.warmEvalMs), 'tm-warm-eval-ms', 'latest recalculation with no engine boot or respawn')}
+      {item('respawns', `${t.respawns.duckdb}/${t.respawns.pyodide}`, 'tm-respawns', 'DuckDB / Pyodide worker respawns')}
       {item('engines', `DuckDB ${t.duckdbVersion ?? '—'} (${t.duckdbBundle ?? '—'}) · Pyodide ${t.pyodideVersion ?? '—'} · NumPy ${t.numpyVersion ?? '—'}`, 'tm-versions')}
     </div>
   );
@@ -75,77 +64,99 @@ function ValueCell({ v, failing }: { readonly v: CellValue | 'pending' | undefin
   );
 }
 
-function SliceGrid({ snap, store }: { readonly snap: AppSnapshot; readonly store: AppStore }): ReactNode {
-  const [open, setOpen] = useState<CellKey | null>(null);
-  const d1Failing = snap.assertions.some((a) => !a.ok);
+function Row({ r, snap, store, failing }: { readonly r: CellRow; readonly snap: AppSnapshot; readonly store: AppStore; readonly failing: boolean }): ReactNode {
+  const [open, setOpen] = useState(false);
+  const isEngine = r.engine !== 'formula' || r.raw.startsWith('=');
+  const label = isEngine ? (r.raw.length > 72 ? `${r.raw.slice(0, 72).replaceAll('\n', ' ')}…` : r.raw.replaceAll('\n', ' ')) : '';
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-line" role="grid" aria-rowcount={ROWS.length} aria-colcount={4}>
-      <div className="grid grid-cols-[6rem_1fr_7rem_12rem] border-b border-slate-line bg-slate-raised px-4 py-2 font-mono text-xs uppercase tracking-wide text-ink-muted" role="row">
-        <span>Cell</span><span>Definition</span><span>Engine</span><span className="text-right">Value</span>
+    <div role="row" data-testid={`row-${r.key}`} className={`border-b border-slate-line px-4 py-1.5 last:border-b-0 ${failing ? 'bg-fracture/10' : ''}`}>
+      <div className="grid grid-cols-[7rem_1fr_5rem_13rem] items-center gap-2">
+        <span className={`font-mono text-sm ${ENGINE_TEXT[r.engine]}`}>{r.a1}</span>
+        <span className="flex min-w-0 items-center gap-2 font-mono text-xs text-ink-muted">
+          <span className="truncate">{label}</span>
+          {r.raw.length > 72 && <button type="button" className="shrink-0 rounded border border-slate-line px-1.5 text-[10px] hover:text-ink" onClick={() => setOpen(!open)}>{open ? 'hide' : 'source'}</button>}
+        </span>
+        <span className={`w-fit rounded border px-1.5 font-mono text-[10px] uppercase ${ENGINE_TEXT[r.engine]} ${ENGINE_BORDER[r.engine]}`}>{r.literal ? 'input' : r.engine}</span>
+        <span className="text-right" role="gridcell" data-testid={`value-${r.key}`}>
+          {r.literal ? (
+            <input
+              aria-label={r.key}
+              data-testid={`input-${r.key}`}
+              className="w-40 rounded border border-slate-line bg-obsidian px-2 py-0.5 text-right font-mono text-sm tabular text-ink focus:border-engine-formula focus:outline-none"
+              defaultValue={r.raw}
+              key={`${r.key}-${snap.generation}`}
+              onKeyDown={(e) => { if (e.key === 'Enter') void store.edit(r.key, e.currentTarget.value); }}
+              onBlur={(e) => { if (e.currentTarget.value !== r.raw) void store.edit(r.key, e.currentTarget.value); }}
+            />
+          ) : (
+            <ValueCell v={r.value} failing={failing} />
+          )}
+        </span>
       </div>
-      {ROWS.map((r) => {
-        const a1 = r.cell.slice(r.cell.indexOf('!') + 1);
-        const v = snap.values.get(r.cell);
-        const failing = r.cell === k('D1') && d1Failing;
-        return (
-          <div key={r.cell} role="row" data-testid={`row-${a1}`} className={`border-b border-slate-line px-4 py-2 last:border-b-0 ${failing ? 'bg-fracture/10' : ''}`}>
-            <div className="grid grid-cols-[6rem_1fr_7rem_12rem] items-center gap-2">
-              <span className={`font-mono text-sm ${ENGINE_TEXT[r.engine]}`}>{a1}</span>
-              <span className="flex items-center gap-2 text-sm">
-                {r.label}
-                {!r.editable && r.source !== '' && (
-                  <button type="button" className="rounded border border-slate-line px-1.5 font-mono text-[10px] text-ink-muted hover:text-ink" onClick={() => setOpen(open === r.cell ? null : r.cell)}>
-                    {open === r.cell ? 'hide' : 'source'}
-                  </button>
-                )}
-              </span>
-              <span className={`w-fit rounded border px-1.5 font-mono text-[10px] uppercase ${ENGINE_TEXT[r.engine]} ${ENGINE_BORDER[r.engine]}`}>{r.engine}</span>
-              <span className="text-right" role="gridcell" data-testid={`value-${a1}`}>
-                {r.editable ? (
-                  <input
-                    aria-label={r.label}
-                    data-testid={`input-${a1}`}
-                    className="w-36 rounded border border-slate-line bg-obsidian px-2 py-1 text-right font-mono tabular text-ink focus:border-engine-formula focus:outline-none"
-                    defaultValue={snap.raws.get(r.cell) ?? ''}
-                    key={`${r.cell}-${snap.generation}-${snap.applied === null ? 'u' : 'a'}`}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void store.edit(r.cell, e.currentTarget.value); }}
-                    onBlur={(e) => { if (e.currentTarget.value !== snap.raws.get(r.cell)) void store.edit(r.cell, e.currentTarget.value); }}
-                  />
-                ) : (
-                  <ValueCell v={v} failing={failing} />
-                )}
-              </span>
-            </div>
-            {open === r.cell && <pre className="mt-2 overflow-x-auto rounded bg-obsidian p-3 font-mono text-xs text-ink-muted">{r.source}</pre>}
-          </div>
-        );
-      })}
-      <div className="flex flex-wrap items-center gap-2 border-t border-slate-line bg-slate-surface px-4 py-2 font-mono text-xs" data-testid="assertions">
-        <span className="text-ink-muted">D1 assertions:</span>
-        {snap.assertions.map((a) => (
-          <span key={a.id} data-testid={`assert-${a.id}`} data-ok={a.ok} title={a.detail} className={`rounded border px-2 ${a.ok ? 'border-engine-formula text-engine-formula' : 'suture-pulse border-fracture text-fracture'}`}>
-            {a.label} {a.ok ? '✓' : '✗'}
-          </span>
-        ))}
-      </div>
+      {open && <pre className="mt-2 overflow-x-auto rounded bg-obsidian p-3 font-mono text-xs text-ink-muted">{r.raw}</pre>}
     </div>
   );
 }
 
-function Lineage({ failing }: { readonly failing: boolean }): ReactNode {
-  const node = (id: string, engine: EngineId): ReactNode => (
-    <span className={`rounded border px-2 py-0.5 font-mono text-xs ${failing ? 'border-fracture text-fracture' : `${ENGINE_BORDER[engine]} ${ENGINE_TEXT[engine]}`}`}>{id}</span>
-  );
-  const thread = (engine: EngineId, broken: boolean): ReactNode => (
-    <svg width="56" height="12" aria-hidden="true" className={failing ? 'suture-pulse' : ''}>
-      <path d={broken ? 'M2 6 C 14 0, 20 0, 24 6 M32 6 C 36 12, 42 12, 54 6' : 'M2 6 C 18 0, 38 12, 54 6'} fill="none" strokeWidth={failing ? 2 : 1.25}
-        className={failing ? 'stroke-fracture' : engine === 'sql' ? 'stroke-engine-sql' : engine === 'py' ? 'stroke-engine-py' : 'stroke-engine-formula'}
-        strokeDasharray={engine === 'sql' ? '6 4' : engine === 'py' ? '2 4' : undefined} />
-    </svg>
-  );
+function Workbook({ snap, store }: { readonly snap: AppSnapshot; readonly store: AppStore }): ReactNode {
+  const failingCells = new Set(snap.assertions.filter((a) => !a.ok).map((a) => a.cell));
+  const sheets = [...new Set(snap.rows.map((r) => r.sheet))];
+  const [keyText, setKey] = useState('');
+  const [raw, setRaw] = useState('');
+  const [error, setError] = useState<string | null>(null);
   return (
-    <div className="flex items-center gap-1" data-testid="lineage" data-failing={failing}>
-      {node('C2', 'formula')}{thread('sql', false)}{node('A1', 'sql')}{thread('py', false)}{node('B1', 'py')}{thread('formula', failing)}{node('D1', 'formula')}
+    <div className="space-y-4" data-testid="workbook" data-title={snap.title}>
+      {sheets.map((s) => (
+        <section key={s} className="overflow-hidden rounded-lg border border-slate-line" role="grid" aria-label={s}>
+          <div className="border-b border-slate-line bg-slate-raised px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-ink-muted">{s}</div>
+          {snap.rows.filter((r) => r.sheet === s).map((r) => <Row key={r.key} r={r} snap={snap} store={store} failing={failingCells.has(r.key)} />)}
+        </section>
+      ))}
+      <form className="flex flex-wrap items-center gap-2 font-mono text-xs" onSubmit={(e) => { e.preventDefault(); void store.addCell(keyText, raw).then(setError); }}>
+        <span className="text-ink-muted">new cell</span>
+        <input aria-label="cell reference" data-testid="new-cell-key" placeholder="Data!A1" value={keyText} onChange={(e) => setKey(e.target.value)} className="w-28 rounded border border-slate-line bg-obsidian px-2 py-1 text-ink" />
+        <input aria-label="cell source" data-testid="new-cell-raw" placeholder='=SQL("SELECT count(*) FROM my_dataset")' value={raw} onChange={(e) => setRaw(e.target.value)} className="min-w-[28rem] flex-1 rounded border border-slate-line bg-obsidian px-2 py-1 text-ink" />
+        <button type="submit" data-testid="new-cell-add" className="rounded border border-engine-formula px-2 py-1 text-engine-formula">Add</button>
+        {error !== null && <span className="text-fracture">{error}</span>}
+      </form>
+    </div>
+  );
+}
+
+function Assertions({ snap }: { readonly snap: AppSnapshot }): ReactNode {
+  return (
+    <div className="flex flex-wrap items-center gap-2 font-mono text-xs" data-testid="assertions">
+      <span className="text-ink-muted">assertions:</span>
+      {snap.assertions.map((a) => (
+        <span key={a.id} data-testid={`assert-${a.id}`} data-ok={a.ok} title={a.detail} className={`rounded border px-2 ${a.ok ? 'border-engine-formula text-engine-formula' : 'suture-pulse border-fracture text-fracture'}`}>
+          {a.id} <span className="text-ink-muted">{a.cell.slice(a.cell.indexOf('!') + 1)} {a.label}</span> {a.ok ? '✓' : '✗'}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function Lineage({ artifact, failing, rows }: { readonly artifact: ReplayArtifact; readonly failing: boolean; readonly rows: ReadonlyArray<CellRow> }): ReactNode {
+  const engineOf = (k: CellKey): EngineId => rows.find((r) => r.key === k)?.engine ?? 'formula';
+  const cells = artifact.lineagePath.cells;
+  return (
+    <div className="flex flex-wrap items-center gap-1" data-testid="lineage" data-failing={failing}>
+      {cells.map((c, i) => {
+        const engine = engineOf(c);
+        const broken = artifact.lineagePath.failingEdge?.to === c;
+        return (
+          <span key={c} className="flex items-center gap-1">
+            {i > 0 && (
+              <svg width="40" height="12" aria-hidden="true" className={failing ? 'suture-pulse' : ''}>
+                <path d={broken && failing ? 'M2 6 C 10 0, 14 0, 17 6 M23 6 C 26 12, 30 12, 38 6' : 'M2 6 C 14 0, 26 12, 38 6'} fill="none" strokeWidth={failing ? 2 : 1.25}
+                  className={failing ? 'stroke-fracture' : engine === 'sql' ? 'stroke-engine-sql' : engine === 'py' ? 'stroke-engine-py' : 'stroke-engine-formula'}
+                  strokeDasharray={engine === 'sql' ? '6 4' : engine === 'py' ? '2 4' : undefined} />
+              </svg>
+            )}
+            <span className={`rounded border px-2 py-0.5 font-mono text-xs ${failing ? 'border-fracture text-fracture' : `${ENGINE_BORDER[engine]} ${ENGINE_TEXT[engine]}`}`}>{c}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -159,6 +170,7 @@ function ExorcistPanel({ snap, store }: { readonly snap: AppSnapshot; readonly s
   const [copied, setCopied] = useState(false);
   const artifact: ReplayArtifact | null = x.kind === 'finished' && x.verdict.kind === 'violated' ? x.verdict.artifact : x.kind === 'replayed' ? x.artifact : null;
   const busy = x.kind === 'running' || x.kind === 'replaying';
+  const failing = snap.applied !== null && snap.assertions.some((a) => !a.ok);
   return (
     <section className="rounded-lg border border-slate-line bg-slate-surface p-4" data-testid="exorcist" aria-label="Exorcist">
       <div className="flex flex-wrap items-center gap-3">
@@ -168,11 +180,12 @@ function ExorcistPanel({ snap, store }: { readonly snap: AppSnapshot; readonly s
         </button>
         {busy && <button type="button" onClick={() => store.stopExorcist()} className="rounded border border-slate-line px-3 py-1.5 font-mono text-sm text-ink-muted">Stop</button>}
         <span className="font-mono text-xs text-ink-muted" data-testid="exorcist-status">
-          {x.kind === 'idle' && 'fuzzes C1 ∈ [10k, 2M] and C2 ∈ [0, 3] through DuckDB → NumPy → formula (batched mode)'}
-          {x.kind === 'running' && `seed ${x.seed} · ${x.progress?.phase ?? 'starting'} · ${x.progress?.runs ?? 0} runs · ${x.progress?.scenarios ?? 0} scenarios · shrink rounds ${x.progress?.shrinkRounds ?? 0}`}
+          {x.kind === 'idle' && 'fuzzes the declared inputs through every engine and checks Tier 1 invariants + the assertions above'}
+          {x.kind === 'running' && `seed ${x.seed} · ${x.progress?.mode ?? ''} · ${x.progress?.phase ?? 'starting'} · ${x.progress?.runs ?? 0} runs · ${x.progress?.scenarios ?? 0} scenarios · shrink rounds ${x.progress?.shrinkRounds ?? 0}`}
           {x.kind === 'finished' && x.verdict.kind === 'passed' && `passed: ${x.verdict.runs} runs, no counterexample (${x.ms} ms)`}
           {x.kind === 'finished' && x.verdict.kind === 'violated' && `violated after ${x.ms} ms`}
-          {x.kind === 'finished' && (x.verdict.kind === 'stopped' || x.verdict.kind === 'configError') && x.verdict.kind}
+          {x.kind === 'finished' && x.verdict.kind === 'configError' && `configuration error: ${x.verdict.message}`}
+          {x.kind === 'finished' && x.verdict.kind === 'stopped' && 'stopped'}
           {x.kind === 'replaying' && 'replaying artifact…'}
           {x.kind === 'replayed' && `replay: ${x.outcome.kind}${x.outcome.kind === 'reproduced' ? (x.outcome.exact ? ' (exact)' : ' (direct)') : ''}`}
           {x.kind === 'error' && <span className="text-fracture">{x.message}</span>}
@@ -185,10 +198,10 @@ function ExorcistPanel({ snap, store }: { readonly snap: AppSnapshot; readonly s
             <dt className="text-ink-muted">mode</dt><dd data-testid="verdict-mode">{artifact.mode}</dd>
             <dt className="text-ink-muted">seed / path</dt><dd className="break-all" data-testid="verdict-seed">{artifact.seed} / {artifact.path}</dd>
             <dt className="text-ink-muted">shrunk inputs</dt>
-            <dd data-testid="failing-inputs">{artifact.failingInputs.map((f) => `${f.cell.slice(f.cell.indexOf('!') + 1)} = ${formatScalar(f.value)}`).join(', ')}</dd>
-            <dt className="text-ink-muted">lineage</dt><dd>{artifact.lineagePath.cells.map((c) => c.slice(c.indexOf('!') + 1)).join(' → ')}</dd>
+            <dd data-testid="failing-inputs">{artifact.failingInputs.map((f) => `${f.cell} = ${formatScalar(f.value)}`).join(', ')}</dd>
             <dt className="text-ink-muted">workbook</dt><dd className="break-all">{artifact.workbookHash}</dd>
           </dl>
+          <Lineage artifact={artifact} failing={failing} rows={snap.rows} />
           <div className="flex flex-wrap gap-2">
             <button type="button" data-testid="apply-counterexample" onClick={() => void store.applyCounterexample(artifact)}
               className="rounded border border-fracture bg-fracture/10 px-3 py-1.5 font-mono text-sm text-fracture hover:bg-fracture/20">
@@ -211,23 +224,54 @@ function ExorcistPanel({ snap, store }: { readonly snap: AppSnapshot; readonly s
   );
 }
 
+function DataPanel({ snap, store }: { readonly snap: AppSnapshot; readonly store: AppStore }): ReactNode {
+  return (
+    <section className="space-y-2 rounded-lg border border-slate-line bg-slate-surface p-4 font-mono text-xs" data-testid="data-panel" aria-label="Datasets">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="cursor-pointer rounded border border-engine-sql px-3 py-1.5 text-sm text-engine-sql hover:bg-engine-sql/10">
+          Import file
+          <input type="file" accept=".csv,.parquet,.xlsx" data-testid="import-file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f !== undefined) void store.importFile(f); e.target.value = ''; }} />
+        </label>
+        <span className="text-ink-muted">.csv · .parquet · .xlsx — parsed locally, never uploaded; query them with =SQL() or =PY()</span>
+      </div>
+      {snap.imports.map((r, i) => (
+        <div key={`${r.file}-${i}`} data-testid="import-report" data-ok={r.ok} className={r.ok ? 'text-ink' : 'text-fracture'}>
+          {r.file}: {r.message}{r.warnings.length > 0 && <span className="text-ink-muted"> · {r.warnings.join('; ')}</span>}
+        </div>
+      ))}
+      {snap.datasets.map((d) => (
+        <div key={d.meta.name} data-testid={`dataset-${d.meta.name}`} className="text-ink-muted">
+          <span className="text-engine-sql">{d.meta.name}</span> · {d.meta.format} · {d.meta.rowCount.toLocaleString('en-US')} rows · {d.meta.schema.map((f) => `${f.name}:${f.arrowType}`).join(', ')}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function App({ store }: { readonly store: AppStore }): ReactNode {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const failing = snap.assertions.some((a) => !a.ok) || (() => { const v = snap.values.get(k('D1')); return v !== undefined && v !== 'pending' && isCellError(v); })();
   return (
     <div className="min-h-full bg-obsidian text-ink">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-line px-6 py-3">
         <div>
-          <h1 className="font-mono text-lg tracking-tight">SUTURE <span className="text-ink-muted">· vertical slice</span></h1>
-          <p className="text-xs text-ink-muted">One cross-engine chain: DuckDB-WASM → Arrow IPC → NumPy (Option C) → spreadsheet-compatible formula → Exorcist.</p>
+          <h1 className="font-mono text-lg tracking-tight">SUTURE <span className="text-ink-muted">· engine verification</span></h1>
+          <p className="text-xs text-ink-muted">DuckDB-WASM → Arrow IPC → NumPy (Option C) → spreadsheet-compatible formulas → Exorcist.</p>
         </div>
-        <ReadinessPill snap={snap} />
+        <div className="flex items-center gap-3">
+          <select aria-label="workbook" data-testid="workbook-picker" value={snap.workbook} onChange={(e) => void store.switchWorkbook(e.target.value as WorkbookId)}
+            className="rounded border border-slate-line bg-slate-raised px-2 py-1 font-mono text-xs text-ink">
+            {WORKBOOKS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+          </select>
+          <ReadinessPill snap={snap} />
+        </div>
       </header>
       <Telemetry snap={snap} />
-      <main className="mx-auto max-w-5xl space-y-5 px-6 py-6">
-        <Lineage failing={failing && snap.applied !== null} />
-        <SliceGrid snap={snap} store={store} />
+      <main className="mx-auto max-w-6xl space-y-5 px-6 py-6">
+        <h2 className="font-mono text-sm text-ink" data-testid="workbook-title">{snap.title}</h2>
+        <Assertions snap={snap} />
         <ExorcistPanel snap={snap} store={store} />
+        <DataPanel snap={snap} store={store} />
+        <Workbook snap={snap} store={store} />
       </main>
     </div>
   );

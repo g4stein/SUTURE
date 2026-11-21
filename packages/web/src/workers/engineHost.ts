@@ -160,6 +160,10 @@ export class EngineHost {
   private async spawn(engine: EngineName, replacing: { readonly running: Map<number, number>; readonly cause: RespawnCause; readonly reason: string } | null): Promise<PortClient> {
     const s = this.slots[engine];
     this.setStatus(engine, { state: 'loading', progress: null, reason: null });
+    // A signal written for the job that forced this respawn must not reach the replacement: Pyodide would raise
+    // KeyboardInterrupt inside its own initialization (found by the e2e escalation test).
+    const ctl = this.control[engine];
+    if (ctl !== null) new Int32Array(ctl).fill(0);
     const worker = this.workers(engine);
     s.worker = worker;
     s.running = new Map();
@@ -202,7 +206,10 @@ export class EngineHost {
     if (init.kind === 'duckdb.ready') this.patchTelemetry({ duckdbInitMs: ms, validator: init.validator, duckdbBundle: init.bundle, duckdbVersion: init.duckdbVersion });
     else if (init.kind === 'py.ready') this.patchTelemetry({ pyodideInitMs: ms, pyodideVersion: init.pyodideVersion, numpyVersion: init.numpyVersion });
     else {
-      this.setStatus(engine, { state: 'failed', progress: null, reason: init.kind === 'failed' ? init.message : `initialization returned ${init.kind}` });
+      const reason = init.kind === 'failed' ? init.message : `initialization returned ${init.kind}`;
+      this.setStatus(engine, { state: 'failed', progress: null, reason });
+      main.failAll(`${engine} failed to initialize: ${reason}`); // held requests resolve as #SQL!/#PY!, never hang
+      s.ready = null;
       throw new Error(`${engine} failed to initialize`);
     }
     if (replacing !== null) {
