@@ -165,7 +165,7 @@ export function createPyodideHandler(env: PyodideHandlerEnv): JobHandler {
           Atomics.store(interrupt, 0, 0); // defensive: never inherit a pending SIGINT from a previous worker
           py.setInterruptBuffer(interrupt);
         }
-        diag('py.interruptArmed', { armed: interrupt !== null, shared: r.payload.interruptBuffer instanceof SharedArrayBuffer, coi: (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true, pyodide: py.version });
+        diag('py.interruptArmed', { armed: interrupt !== null, shared: typeof SharedArrayBuffer !== 'undefined' && r.payload.interruptBuffer instanceof SharedArrayBuffer, coi: (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true, pyodide: py.version });
         progress('bootstrap', 0, null);
         py.runPython(env.bridgeSource);
         const numpyVersion = String((py.globals.get('numpy_version') as () => string)());

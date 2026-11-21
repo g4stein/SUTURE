@@ -68,7 +68,8 @@ test.describe('isolated (COOP/COEP): cooperative cancel, 1 s escalation, crash r
     expect(errors, errors.join('\n')).toEqual([]);
   });
 
-  test('(a) Python `while True: pass` is interrupted cooperatively: #TIMEOUT!, the worker survives (no respawn)', async ({ page }) => {
+  for (const rep of [1, 2, 3, 4, 5, 6]) { // DIAG(temp): repeated so a CI-only failure is caught with its timeline
+  test(`(a) Python \`while True: pass\` is interrupted cooperatively: #TIMEOUT!, the worker survives (no respawn) [rep ${rep}]`, async ({ page }) => {
     await open(page, HARNESS);
     await call(page, (api) => api.boot('pyodide'));
     const out = await call(page, (api) => api.cells({ A1: '=PY("while True: pass")', A2: '=PY("6 * 7")' }, 1500));
@@ -76,6 +77,7 @@ test.describe('isolated (COOP/COEP): cooperative cancel, 1 s escalation, crash r
     expect(out['A2']).toBe('42');
     expect((await call(page, (api) => api.telemetry())).respawns.pyodide).toBe(0);
   });
+  }
 
   test('(a) a Python job that never reaches the interrupt check escalates after 1 s and respawns', async ({ page }) => {
     await open(page, HARNESS);

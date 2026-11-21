@@ -124,7 +124,7 @@ export class PortClient implements EngineClient {
     if (ctl !== null && isIsolated(this.opts.isolation)) {
       Atomics.store(ctl, 1, ticketOf(this.opts.portId, id));
       Atomics.store(ctl, 0, this.opts.engine === 'pyodide' ? 2 : 1); // 2 = SIGINT for Pyodide
-      diag('client.interruptByteWritten', { engine: this.opts.engine, requestId: id, cause, ticket: ticketOf(this.opts.portId, id), ctl0: Atomics.load(ctl, 0), ctl1: Atomics.load(ctl, 1), shared: ctl.buffer instanceof SharedArrayBuffer, coi: globalThis.crossOriginIsolated === true });
+      diag('client.interruptByteWritten', { engine: this.opts.engine, requestId: id, cause, ticket: ticketOf(this.opts.portId, id), ctl0: Atomics.load(ctl, 0), ctl1: Atomics.load(ctl, 1), shared: typeof SharedArrayBuffer !== 'undefined' && ctl.buffer instanceof SharedArrayBuffer, coi: globalThis.crossOriginIsolated === true });
       this.escalations.set(id, setTimeout(() => {
         diag('client.escalationTimerFired', { engine: this.opts.engine, requestId: id, stillEscalating: this.escalations.has(id), ctl0: Atomics.load(ctl, 0) });
         if (this.escalations.delete(id)) this.opts.onRespawnNeeded(id, cause);
