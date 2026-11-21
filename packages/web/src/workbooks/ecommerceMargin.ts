@@ -171,7 +171,7 @@ export function ecommerceMarginDocument(): SutureDocument {
       ...DEFAULT_EXORCIST,
       batchSize: 100,
       maxBatches: 10,
-      maxShrinkRounds: 24, // decimal simplification finishes the job; the long double-shrink tail adds seconds, not clarity
+      maxShrinkRounds: 12, // 12 rounds narrow the four discount inputs; decimal simplification finishes the job
       inputs: [
         { cell: k(S_PA, 'B2'), domain: { kind: 'float', min: 0, max: 0.35 } },
         { cell: k(S_PA, 'B3'), domain: { kind: 'float', min: 0, max: 0.20 } },

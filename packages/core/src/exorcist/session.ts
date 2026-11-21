@@ -121,13 +121,25 @@ const U32_MAX = 0xffffffff;
  * what fast-check gives integers: deterministic generation from the seed, bias toward its bounds (k = 0 → exactly min,
  * k = 2^32 − 1 → exactly max), and shrinking toward k = 0, i.e. toward min.
  */
-function uniformFloat(min: number, max: number): fc.Arbitrary<number> {
-  if (min === max) return fc.constant(min);
-  return fc.integer({ min: 0, max: U32_MAX }).map((k) => {
+export function uniformFloat(min: number, max: number): fc.Arbitrary<number> {
+  return min === max ? fc.constant(min) : linearFloat(min, max, 0);
+}
+
+/** k ∈ [kMin, 2^32 − 1] mapped linearly onto [min, max]; k = 0 → exactly min, k = 2^32 − 1 → exactly max. */
+function linearFloat(min: number, max: number, kMin: 0 | 1): fc.Arbitrary<number> {
+  return fc.integer({ min: kMin, max: U32_MAX }).map((k) => {
     const t = k / U32_MAX;
     const x = min * (1 - t) + max * t; // lerp form: exact at both ends and never overflows for finite bounds
     return x < min ? min : x > max ? max : x;
   });
+}
+
+/**
+ * `monotonicWith` step for a float input: uniform over values in (0, span], by the same mapping as `uniformFloat` with
+ * k ≥ 1 so the step is never 0. Shrinks toward the smallest step. A zero-width domain gives step 0 and the pair is dropped.
+ */
+export function uniformStep(span: number): fc.Arbitrary<number> {
+  return linearFloat(0, span, 1);
 }
 
 function domainArb(d: FuzzDomain): fc.Arbitrary<ScalarValue> {
@@ -146,8 +158,7 @@ export function runArbitrary(doc: SutureDocument): fc.Arbitrary<RunSample> {
   const steps = fc.tuple(...monos.map((a) => {
     const d = cfg.inputs.find((i) => i.cell === (a.kind === 'monotonicWith' ? a.input : ''))?.domain;
     if (d?.kind === 'integer') return fc.integer({ min: 1, max: Math.max(1, d.max - d.min) });
-    const span = d?.kind === 'float' ? d.max - d.min : 1;
-    return fc.double({ min: 0, max: span, noNaN: true, noDefaultInfinity: true, minExcluded: true });
+    return uniformStep(d?.kind === 'float' ? d.max - d.min : 1);
   }));
   return fc.tuple(inputs, steps).map(([vals, st]) => ({
     base: cfg.inputs.map((inp, i) => ({ cell: inp.cell, value: vals[i] ?? null })),

@@ -194,13 +194,13 @@ Domain arbitraries:
   - deterministic generation and replay from the seed and path;
   - fast-check's bias toward the integer bounds, so `k = 0` gives exactly `min` and `k = 2³² − 1` gives exactly `max`. No other value, including 0, gets special coverage unless it is a bound;
   - shrinking toward `k = 0`, which means toward `min`. Decimal simplification (§4.6) then rounds the result.
-  The resolution is 2³² evenly spaced values per domain;
+  The resolution is 2³² evenly spaced values per domain. `packages/core/src/__tests__/sampler.pbt.test.ts` checks in-domain draws for any finite bounds, exact `min` and `max`, quartile uniformity, coverage of the upper half (47.4% against 6.4% for `fc.double` with bias and 0.08% without), and shrinking toward `min`;
 - `integer` → `fc.integer({ min, max })`;
 - `choice` → `fc.constantFrom(...values)`;
 - `boolean` → `fc.boolean()`.
 
 For each `monotonicWith` assertion, the run also draws a step:
-- for `float`, `fc.double({ min: 0, max: domain.max - domain.min, noNaN: true })` filtered to `> 0`;
+- for `float`, `uniformStep(domain.max − domain.min)`: the same linear mapping as `float` domains, with `k ∈ [1, 0xFFFFFFFF]`, giving a step uniform over `(0, span]` that is never 0 and shrinks toward the smallest step (Phase 3; previously `fc.double`). A zero-width domain gives step 0, and the pair is dropped;
 - for `integer`, `fc.integer({ min: 1, max: domain.max - domain.min })`.
 
 The paired scenario sets `input = min(base[input] + step, domain.max)`. When that equals `base[input]`, the pair is dropped.

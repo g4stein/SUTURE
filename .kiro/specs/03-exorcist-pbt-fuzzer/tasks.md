@@ -40,7 +40,7 @@ Run core tests with `npx vitest --run` in `packages/core`. Do not use watch mode
     - Verify: generated values always lie inside their domains; a pair differs from its base only in `input`; a pair whose step is clamped to an equal value is dropped.
     - _Requirements: 1.2, 3.6_
     - Evidence: d5c94a7 — exercised by `exorcist.test.ts` and `benchmark.test.ts` (monotonic pairs). dc77fb6 — float domains are uniform over values (design §4.1); measured by the flagship discovery runs (`flagships.test.ts`, `e2e/flagships.spec.ts`).
-    - Status: no dedicated test yet asserts the in-domain bounds and value-uniformity of `uniformFloat`.
+    - Evidence (polish commit): `sampler.pbt.test.ts` covers `uniformFloat` and `uniformStep` (in-domain draws for any finite bounds, exact `min`/`max`, quartiles, upper-half coverage against `fc.double`, shrinking toward `min`, monotonic steps in `(0, span]`).
   - [x] 3.2 Implement the in-process runner with `fc.check`, the determinism re-evaluations, decimal simplification, confirmation, and lineage.
     - Verify: `reference-fail` gives a violation whose simplified inputs have ≤ 6 significant digits; the artifact is byte-identical across two runs with the same seed (excluding `createdAt`); replay gives `reproduced, exact: true`.
     - _Requirements: 2.6, 2.7, 4.1, 4.4, 6.1–6.3, 7.6, 7.9_

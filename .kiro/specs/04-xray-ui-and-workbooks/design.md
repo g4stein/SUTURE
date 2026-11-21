@@ -413,22 +413,23 @@ The expected violated assertion is `hardlines-stacked-net-margin`.
 
 ### 7.3 Performance
 
-Both flagships use `batchSize: 100` and `maxBatches: 10`. Flagship 1 uses `maxShrinkRounds: 32` and flagship 2 uses `maxShrinkRounds: 24`. Decimal simplification (Spec 03) finishes the shrink. The longer double-shrink tail adds seconds without making the counterexample clearer.
+Both flagships use `batchSize: 100` and `maxBatches: 10`. Flagship 1 uses `maxShrinkRounds: 32` and flagship 2 uses `maxShrinkRounds: 12`. Decimal simplification (Spec 03) finishes the shrink. The longer double-shrink tail adds seconds without making the counterexample clearer.
 
 Per scenario, flagship 1 runs one trajectory query over a 12-row cohort table and one 12-point least-squares fit. Flagship 2 runs one stress query over the 96 tiers, two small NumPy calls, and one total-margin query. The 100,000-row synthesis and the tier aggregation run once per workbook load.
 
 Targets: flagship 1 discovers its flaw from a fresh seed in at most 3 s in the browser. Flagship 2 does so in 5–10 s.
 
-Measured on the Phase 3 build after float domains became uniform over values (Spec 03 §4.1, commit dc77fb6). Times are search + shrink + decimal simplification, from fresh random seeds:
+Measured on the Phase 3 build with value-uniform float domains (Spec 03 §4.1, commit dc77fb6) and flagship 2 at `maxShrinkRounds: 12`. Times cover search, shrink, and decimal simplification from fresh random seeds. Browser times are the app's own Run → verdict measurement:
 
 | Flagship | Node, real engines | Browser (Playwright, Chromium) | Index of the first failing run |
 |---|---|---|---|
-| 1 | 1.9–3.0 s (7 seeds) | 2.9 s (2 seeds) | 0–5 (Node) |
-| 2 | 3.9–11.6 s (7 seeds; 2 above 10 s) | 4.0–10.7 s (6 seeds; 1 above 10 s) | 1–32 |
+| 1 | 1.9–3.0 s (7 seeds) | 2.6–3.4 s (4 runs, 1 on GitHub Actions; 1 above the 3 s target) | 0–5 (Node) |
+| 2 | 2.3–4.8 s (7 seeds) | 2.5–3.6 s (6 seeds) | 0–79 |
 
-Before that change, flagship 2's first failing run came at index 17–737 over 8 seeds. That is about 0.36% of runs, so about 3% of seeds would have found nothing in 1,000 runs. Its Node discovery took 3.4–18.3 s.
-
-The search phase now finishes inside the first batch. The remaining spread comes from shrinking: every flagship 2 run uses all 24 shrink rounds, and the seed decides how far into each candidate stream (4, 16, 64, … candidates) the next failing candidate sits. Lowering `maxShrinkRounds`, or stopping once decimal simplification would produce the same values, are open tuning options. They have not been applied.
+History for flagship 2:
+- With `fc.double` domains, the first failing run came at index 17–737 over 8 seeds. That is about 0.36% of runs, so about 3% of seeds would have found nothing in 1,000 runs. Node discovery took 3.4–18.3 s.
+- With value-uniform domains and 24 shrink rounds, search finished inside the first batch, but every run used all 24 rounds. Node discovery took 3.9–11.6 s over 7 seeds and the browser took 4.0–10.7 s over 6 seeds.
+- At 12 rounds, the shrunk counterexamples are still simplified to short values (for example `Params!B2=0.2, B3=0.2, B4=0.2, B6=1.1`), and every replay is exact.
 
 ## 8. Tests for flagship discovery
 
