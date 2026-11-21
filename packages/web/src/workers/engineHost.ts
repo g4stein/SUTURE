@@ -2,6 +2,7 @@ import type { DatasetMeta, TableRef } from '@suture/core';
 import { isHostEvent, PROTOCOL_VERSION, type ControlMessage, type EngineName, type EngineStatus, type RegisterDatasetPayload, type XlsxIngestResult } from './protocol.ts';
 import { DEGRADED_REASON, isIsolated, type IsolationInfo } from './isolation.ts';
 import { PortClient, type RespawnCause } from './portClient.ts';
+import { diag } from './diag.ts'; // DIAG(temp)
 
 export interface Telemetry {
   /** Cold boot per engine: worker start → engine ready (WASM download + compile + init). */
@@ -234,11 +235,13 @@ export class EngineHost {
   /** Timeout without isolation, or a cooperative cancel that did not settle within 1,000 ms. */
   requestRespawn(engine: EngineName, portId: number, requestId: number, cause: 'deadline' | 'abort'): void {
     const s = this.slots[engine];
+    diag('host.requestRespawn', { engine, portId, requestId, cause, runningOnPort: s.running.get(portId) ?? null });
     if (s.running.get(portId) !== requestId) return; // already finished
     this.restart(engine, cause, cause === 'deadline' ? 'deadline exceeded' : 'cancel did not settle');
   }
 
   private crash(engine: EngineName, reason: string): void {
+    diag('host.crash', { engine, reason: reason.slice(-600) });
     const s = this.slots[engine];
     const now = performance.now();
     s.crashes = [...s.crashes.filter((t) => now - t < CRASH_WINDOW_MS), now];

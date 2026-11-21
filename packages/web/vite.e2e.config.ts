@@ -11,6 +11,7 @@ const noIsolation = process.env['SUTURE_E2E_NO_ISOLATION'] === '1';
 const headers = noIsolation ? {} : { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'credentialless' };
 
 const merged = mergeConfig(base, defineConfig({
+  define: { __SUTURE_DIAG__: 'true' }, // DIAG(temp): enables src/workers/diag.ts in dist-e2e only
   build: {
     outDir: 'dist-e2e',
     rollupOptions: {

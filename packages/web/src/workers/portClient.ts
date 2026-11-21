@@ -5,6 +5,7 @@ import {
 } from './protocol.ts';
 import { isIsolated, type IsolationInfo } from './isolation.ts';
 import { ticketOf } from './workerRuntime.ts';
+import { diag } from './diag.ts'; // DIAG(temp)
 
 export type RespawnCause = 'deadline' | 'abort' | 'crash';
 
@@ -89,6 +90,7 @@ export class PortClient implements EngineClient {
     }
     if (m.kind === 'result') {
       const esc = this.escalations.get(m.requestId);
+      diag('client.resultReceived', { engine: this.opts.engine, requestId: m.requestId, kind: m.result.kind, escalationPending: esc !== undefined, pending: this.pending.has(m.requestId) });
       if (esc !== undefined) {
         clearTimeout(esc);
         this.escalations.delete(m.requestId);
@@ -97,6 +99,7 @@ export class PortClient implements EngineClient {
     const p = this.pending.get(m.requestId);
     if (p === undefined) return;
     if (m.kind === 'started') {
+      diag('client.startedReceived', { engine: this.opts.engine, requestId: m.requestId, deadlineMs: p.deadlineMs });
       p.started = true;
       if (p.deadlineMs > 0) p.timer = setTimeout(() => this.onDeadline(m.requestId), p.deadlineMs);
       return;
@@ -121,7 +124,9 @@ export class PortClient implements EngineClient {
     if (ctl !== null && isIsolated(this.opts.isolation)) {
       Atomics.store(ctl, 1, ticketOf(this.opts.portId, id));
       Atomics.store(ctl, 0, this.opts.engine === 'pyodide' ? 2 : 1); // 2 = SIGINT for Pyodide
+      diag('client.interruptByteWritten', { engine: this.opts.engine, requestId: id, cause, ticket: ticketOf(this.opts.portId, id), ctl0: Atomics.load(ctl, 0), ctl1: Atomics.load(ctl, 1), shared: ctl.buffer instanceof SharedArrayBuffer, coi: globalThis.crossOriginIsolated === true });
       this.escalations.set(id, setTimeout(() => {
+        diag('client.escalationTimerFired', { engine: this.opts.engine, requestId: id, stillEscalating: this.escalations.has(id), ctl0: Atomics.load(ctl, 0) });
         if (this.escalations.delete(id)) this.opts.onRespawnNeeded(id, cause);
       }, ESCALATE_MS));
     } else if (cause === 'deadline') {
@@ -132,6 +137,7 @@ export class PortClient implements EngineClient {
   private onDeadline(id: number): void {
     const p = this.pending.get(id);
     if (p === undefined) return;
+    diag('client.deadlineTimerFired', { engine: this.opts.engine, requestId: id, deadlineMs: p.deadlineMs });
     // The cell becomes #TIMEOUT! now; whatever the worker returns later is discarded.
     this.pending.delete(id);
     this.signalRunning(id, 'deadline');
@@ -162,6 +168,7 @@ export class PortClient implements EngineClient {
         else opts.signal.addEventListener('abort', onAbort, { once: true });
       }
       this.port.postMessage(message, p.transfer);
+      diag('client.requestSent', { engine: this.opts.engine, portId: this.opts.portId, requestId, kind, deadlineMs: opts.deadlineMs });
     });
   }
 

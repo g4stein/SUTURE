@@ -3,6 +3,7 @@ import { makeError, normalizeMatrix, normalizeNumber, type CellKey, type CellVal
 import { columnSpecs, type ColumnSpec } from './arrowColumns.ts';
 import { ownedF64, type PeerMessage, type ResultId, type WirePyBinding, type WorkerResult } from './protocol.ts';
 import { FatalEngineError, ticketOf, type Job, type JobHandler } from './workerRuntime.ts';
+import { diag } from './diag.ts'; // DIAG(temp)
 
 /**
  * Host-agnostic Pyodide request handling (Spec 02 §4.3–4.5, Option C). The browser worker and the Node test host run
@@ -117,11 +118,15 @@ export function createPyodideHandler(env: PyodideHandlerEnv): JobHandler {
     for (;;) {
       let result: PyProxyLike | null = null;
       try {
+        diag('py.callStart', { requestId: job.request.requestId, cell, signal: interrupt === null ? null : Atomics.load(interrupt, 0) });
         result = fn(code, vectorized, seed, sharedResolved, scenarioResolved, `<cell ${cell}>`);
         const first = result.length > 0 ? (result.get(0) as PyProxyLike) : null;
+        const isInt = first !== null && first.get(0) === 'interrupt';
+        diag('py.returned', { requestId: job.request.requestId, tag: first === null ? null : String(first.get(0)), pyCaughtAtMs: isInt ? first.get(1) : null, pyExecStartAtMs: isInt ? first.get(2) : null, signal: interrupt === null ? null : Atomics.load(interrupt, 0) });
         if (first !== null && first.get(0) === 'interrupt') {
           first.destroy();
           const mine = interrupt !== null && Atomics.load(interrupt, 1) === ticketOf(job.portId, job.request.requestId);
+          diag('py.interruptTicket', { requestId: job.request.requestId, mine, inBuffer: interrupt === null ? null : Atomics.load(interrupt, 1), expected: ticketOf(job.portId, job.request.requestId) });
           if (interrupt !== null) Atomics.store(interrupt, 0, 0);
           if (mine) return { kind: 'cancelled' };
           continue; // ticket mismatch: the interrupt targeted another job; evaluation is deterministic, so re-run
@@ -138,6 +143,7 @@ export function createPyodideHandler(env: PyodideHandlerEnv): JobHandler {
         }
         return { kind: 'values', values, resultIds: values.map(() => null) };
       } catch (e) {
+        diag('py.escapedToJs', { requestId: job.request.requestId, name: e instanceof Error ? e.name : typeof e, message: (e instanceof Error ? e.message : String(e)).slice(-600), signal: interrupt === null ? null : Atomics.load(interrupt, 0) });
         // Every Python exception is caught inside the bridge; anything escaping to JS is a fatal engine state.
         throw new FatalEngineError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -159,6 +165,7 @@ export function createPyodideHandler(env: PyodideHandlerEnv): JobHandler {
           Atomics.store(interrupt, 0, 0); // defensive: never inherit a pending SIGINT from a previous worker
           py.setInterruptBuffer(interrupt);
         }
+        diag('py.interruptArmed', { armed: interrupt !== null, shared: r.payload.interruptBuffer instanceof SharedArrayBuffer, coi: (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true, pyodide: py.version });
         progress('bootstrap', 0, null);
         py.runPython(env.bridgeSource);
         const numpyVersion = String((py.globals.get('numpy_version') as () => string)());

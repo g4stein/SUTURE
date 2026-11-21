@@ -2,6 +2,9 @@ import {
   isControlMessage, isWorkerRequest, PROTOCOL_VERSION, transferListOf,
   type HostEvent, type WorkerRequest, type WorkerResponse, type WorkerResult,
 } from './protocol.ts';
+import { diag } from './diag.ts'; // DIAG(temp)
+
+const workerName = (): string => String((globalThis as { name?: unknown }).name ?? ''); // DIAG(temp)
 
 /** Minimal dedicated-worker scope (the web package compiles against the DOM lib). */
 export interface WorkerScope {
@@ -59,12 +62,17 @@ export function startWorkerRuntime(handle: JobHandler, onPeer?: (port: MessagePo
     const job = queue.splice(idx >= 0 ? idx : 0, 1)[0];
     if (job === undefined) return;
     running = job;
+    diag('worker.jobStarted', { w: workerName(), portId: job.portId, requestId: job.request.requestId, kind: job.request.kind });
     host({ protocol: PROTOCOL_VERSION, kind: 'jobStarted', portId: job.portId, requestId: job.request.requestId });
     send(job, { protocol: PROTOCOL_VERSION, kind: 'started', requestId: job.request.requestId });
     handle(job, (phase, loaded, total) => send(job, { protocol: PROTOCOL_VERSION, kind: 'progress', requestId: job.request.requestId, phase, loadedBytes: loaded, totalBytes: total }))
-      .then((result) => send(job, { protocol: PROTOCOL_VERSION, kind: 'result', requestId: job.request.requestId, result }))
+      .then((result) => {
+        send(job, { protocol: PROTOCOL_VERSION, kind: 'result', requestId: job.request.requestId, result });
+        diag('worker.responsePosted', { w: workerName(), requestId: job.request.requestId, kind: result.kind });
+      })
       .catch((e: unknown) => {
         const message = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        diag('worker.handlerThrew', { w: workerName(), requestId: job.request.requestId, fatal: e instanceof FatalEngineError || e instanceof WebAssembly.RuntimeError || e instanceof RangeError, message: message.slice(0, 600) });
         if (e instanceof FatalEngineError || e instanceof WebAssembly.RuntimeError || e instanceof RangeError) {
           host({ protocol: PROTOCOL_VERSION, kind: 'fatal', reason: message });
           return;
@@ -105,6 +113,7 @@ export function startWorkerRuntime(handle: JobHandler, onPeer?: (port: MessagePo
       return;
     }
     queue.push({ portId, port, request: data, cancelled: false });
+    diag('worker.jobQueued', { w: workerName(), portId, requestId: data.requestId, kind: data.kind, queueLength: queue.length, busy: running !== null });
     schedule();
   };
 

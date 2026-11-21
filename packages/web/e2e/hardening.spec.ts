@@ -19,6 +19,28 @@ async function open(page: Page, url: string): Promise<void> {
   await expect(page.locator('#log')).toHaveText('harness ready');
 }
 
+// DIAG(temp): collect `[diag]` lines from the page AND its dedicated workers (worker.on('console'), Playwright ≥ 1.57) and
+// print them after every test, pass or fail, so the GitHub Actions log shows each milestone with epoch-ms timestamps.
+// Chromium also mirrors worker console messages onto the page, so lines are keyed by text and keep the worker's label.
+let diagLines = new Map<string, string>();
+test.beforeEach(({ page }) => {
+  diagLines = new Map();
+  const take = (where: string) => (m: { text(): string }): void => {
+    const t = m.text();
+    if (t.startsWith('[diag] ') && (where !== 'page' || !diagLines.has(t))) diagLines.set(t, where);
+  };
+  page.on('console', take('page'));
+  page.on('worker', (w) => w.on('console', take(new URL(w.url()).pathname.split('/').pop()?.replace(/-[\w-]{8}\.js$/, '') ?? 'worker')));
+});
+test.afterEach(async ({}, testInfo) => {
+  const body = [...diagLines].map(([t, where]) => {
+    const d = /^\[diag\] (\S+) (.*)$/s.exec(t);
+    return `${d?.[1] ?? ''} ${where.padEnd(22)} ${d?.[2] ?? t}`;
+  }).sort().join('\n');
+  console.log(`[diag-dump] ${testInfo.title} (${testInfo.status})\n${body}`);
+  await testInfo.attach('diag-timeline.txt', { body, contentType: 'text/plain' });
+});
+
 const call = <T>(page: Page, fn: (api: Api, arg: unknown) => Promise<T> | T, arg: unknown = null): Promise<T> =>
   page.evaluate(([f, a]) => (new Function('api', 'arg', `return (${f as string})(api, arg)`) as (api: unknown, arg: unknown) => Promise<T>)((globalThis as unknown as { __suture: unknown }).__suture, a), [fn.toString(), arg] as const);
 
