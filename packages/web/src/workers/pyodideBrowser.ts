@@ -1,7 +1,7 @@
 import { loadPyodide, version as pyodideVersion } from 'pyodide';
-import bridgeSource from './python/suture_bridge.py?raw';
-import { createPyodideHandler } from './pyodideHandler.ts';
-import { isPeerMessage, PROTOCOL_VERSION, type PeerMessage, type ResultId } from './protocol.ts';
+import bridgeSource from '@suture/runtime/python/suture_bridge.py?raw';
+import { createPyodideHandler } from '@suture/runtime/engines';
+import { isPeerMessage, PROTOCOL_VERSION, type PeerMessage, type ResultId } from '@suture/runtime/bridge';
 import { startWorkerRuntime } from './workerRuntime.ts';
 
 export interface BrowserPyodide {

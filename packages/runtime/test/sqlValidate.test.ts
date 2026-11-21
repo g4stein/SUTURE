@@ -1,15 +1,15 @@
 import * as fc from 'fast-check';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { DuckDBConnection } from '../node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-blocking';
-import { parseSerializedSql, validateLexical, validateSerializedSql } from '../src/workers/sqlValidate.ts';
-import { openNodeDuckDB } from './nodeDuckdb.ts';
+import type { DuckDBConnection } from 'duckdb-wasm-blocking';
+import { parseSerializedSql, validateLexical, validateSerializedSql } from '../src/engines/sqlValidate.ts';
+import { openNodeDuckDB } from '../src/node/engines.ts';
 
 let conn: DuckDBConnection;
 let astAvailable = false;
 const probe: { shipped: string; afterLoad: string; duckdb: string } = { shipped: '', afterLoad: '', duckdb: '' };
 
 beforeAll(async () => {
-  conn = await openNodeDuckDB();
+  conn = (await openNodeDuckDB()).conn;
   probe.duckdb = String(conn.query('SELECT version() AS v').getChildAt(0)?.get(0));
   // Same settings as the DuckDB worker: no implicit extension autoload/autoinstall.
   conn.query('SET autoinstall_known_extensions = false');

@@ -4,12 +4,9 @@ import { tableFromArrays } from 'apache-arrow';
 import { engineLabel, formatNumber, formatValue, pillAccessibleName, pillText } from '../src/app/format.ts';
 import { cellDisplay } from '../src/grid/cellDisplay.ts';
 import { checkImport, importKind, MAX_IMPORT_BYTES } from '../src/import/routeFile.ts';
-import { validateDocument } from '../src/import/validateDocument.ts';
-import { gatedPyEngine, PY_BLOCKED_MESSAGE } from '../src/engines/gatedPy.ts';
 import { previewTable } from '../src/inspector/preview.ts';
-import { blankDocument } from '../src/workbooks/blank.ts';
-import { saasRunwayDocument } from '../src/workbooks/saasRunway.ts';
-import type { EngineState, EngineStatus } from '../src/workers/protocol.ts';
+import { gatedPyEngine, PY_BLOCKED_MESSAGE, type EngineState, type EngineStatus } from '@suture/runtime/bridge';
+import { blankDocument, saasRunwayDocument, validateDocument } from '@suture/runtime/workbooks';
 
 const st = (engine: 'duckdb' | 'pyodide', state: EngineState, extra: Partial<EngineStatus> = {}): EngineStatus => ({ engine, state, progress: null, reason: null, crashCount: 0, ...extra });
 

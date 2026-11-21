@@ -1,5 +1,5 @@
 import { decodeScalar, type CellValue, type EncodedScalar, type ValueSummary } from '@suture/core';
-import type { EngineName, EngineState, EngineStatus } from '../workers/protocol.ts';
+import type { EngineName, EngineState, EngineStatus } from '@suture/runtime/bridge';
 
 /** Up to 12 significant digits; exponent notation outside [1e-6, 1e15) (Spec 04 §3). Display never changes stored values. */
 export function formatNumber(n: number): string {

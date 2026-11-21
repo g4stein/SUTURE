@@ -1,14 +1,15 @@
 import { tableFromIPC } from 'apache-arrow';
-import { queryIPC } from '../src/workers/duckdbIpc.ts';
+import { queryIPC } from '../src/engines/duckdbIpc.ts';
 import { lowbias32 } from '@suture/core';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { DuckDBConnection } from '../node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-blocking';
+import type { DuckDBConnection } from 'duckdb-wasm-blocking';
 import { A1_SQL, E1_SQL } from './fixtures/sliceSql.ts';
-import { MACROS, openNodeDuckDB } from './nodeDuckdb.ts';
+import { MACROS } from '../src/engines/duckdbHandler.ts';
+import { openNodeDuckDB } from '../src/node/engines.ts';
 
 let conn: DuckDBConnection;
 beforeAll(async () => {
-  conn = await openNodeDuckDB();
+  conn = (await openNodeDuckDB()).conn;
   for (const m of ['SET threads = 1', 'SET preserve_insertion_order = true', ...MACROS]) conn.query(m);
   const e1 = queryIPC(conn, E1_SQL, [], () => false);
   if (e1 === 'cancelled') throw new Error('cancelled');

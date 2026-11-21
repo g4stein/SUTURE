@@ -1,12 +1,12 @@
 import type { PyodideAPI } from 'pyodide';
 import { makeError, normalizeMatrix, normalizeNumber, type CellKey, type CellValue, type CellErrorCode } from '@suture/core';
 import { columnSpecs, type ColumnSpec } from './arrowColumns.ts';
-import { ownedF64, type PeerMessage, type ResultId, type WirePyBinding, type WorkerResult } from './protocol.ts';
-import { FatalEngineError, ticketOf, type Job, type JobHandler } from './workerRuntime.ts';
+import { ownedF64, type PeerMessage, type ResultId, type WirePyBinding, type WorkerResult } from '../bridge/protocol.ts';
+import { FatalEngineError, ticketOf, type Job, type JobHandler } from '../bridge/job.ts';
 
 /**
- * Host-agnostic Pyodide request handling (Spec 02 §4.3–4.5, Option C). The browser worker and the Node test host run
- * exactly this code; only `load` (where Pyodide comes from) and `fetchTables` (the DuckDB peer channel) differ.
+ * Host-agnostic Pyodide request handling (Spec 02 §4.3–4.5, Option C). The browser worker and the Node host
+ * (`@suture/runtime/node`: tests, CLI, MCP) run exactly this code; only `load` (where Pyodide comes from) and `fetchTables` (the DuckDB peer channel) differ.
  */
 export interface PyodideHandlerEnv {
   readonly load: () => Promise<PyodideAPI>;

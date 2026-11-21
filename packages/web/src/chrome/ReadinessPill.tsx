@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AppSnapshot, AppStore } from '../app/store.ts';
 import { ENGINE_NAME, formatMs, pillAccessibleName, pillText } from '../app/format.ts';
-import type { EngineName, EngineStatus } from '../workers/protocol.ts';
+import type { EngineName, EngineStatus } from '@suture/runtime/bridge';
 
 const ENGINE_TEXT: Readonly<Record<EngineName, string>> = { duckdb: 'text-engine-sql', pyodide: 'text-engine-py' };
 

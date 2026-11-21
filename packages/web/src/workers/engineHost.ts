@@ -1,6 +1,8 @@
 import type { DatasetMeta, TableRef } from '@suture/core';
-import { isHostEvent, PROTOCOL_VERSION, type ControlMessage, type EngineName, type EngineStatus, type RegisterDatasetPayload, type XlsxIngestResult } from './protocol.ts';
-import { DEGRADED_REASON, isIsolated, type IsolationInfo } from './isolation.ts';
+import {
+  DEGRADED_REASON, isHostEvent, isIsolated, PROTOCOL_VERSION,
+  type ControlMessage, type EngineName, type EngineStatus, type IsolationInfo, type RegisterDatasetPayload, type XlsxIngestResult,
+} from '@suture/runtime/bridge';
 import { PortClient, type RespawnCause } from './portClient.ts';
 
 export interface Telemetry {

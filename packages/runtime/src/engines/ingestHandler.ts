@@ -1,8 +1,8 @@
 import type { Workbook } from 'exceljs';
 import { Bool, Float64, Table, Utf8, tableToIPC, vectorFromArray, type Vector } from 'apache-arrow';
 import { columnLetters, owned, type ScalarValue } from '@suture/core';
-import type { IngestCell, WorkerResult, XlsxIngestResult } from './protocol.ts';
-import type { JobHandler } from './workerRuntime.ts';
+import type { IngestCell, WorkerResult, XlsxIngestResult } from '../bridge/protocol.ts';
+import type { JobHandler } from '../bridge/job.ts';
 
 /**
  * Spec 02 §8 — spreadsheet-file ingest. Host-agnostic: the ingest worker passes exceljs's browser build; Node tests pass

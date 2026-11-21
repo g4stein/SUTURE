@@ -15,6 +15,7 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
     "@suture/core": "workspace:*",
+    "@suture/runtime": "workspace:*",
     "apache-arrow": "17.0.0",
     "exceljs": "4.4.0",
     "pyodide": "314.0.8",

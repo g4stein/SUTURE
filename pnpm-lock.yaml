@@ -204,6 +204,37 @@ importers:
         specifier: 4.1.12
         version: 4.1.12(@types/node@22.20.5)(jiti@1.21.7)
 
+  packages/runtime:
+    dependencies:
+      '@duckdb/duckdb-wasm':
+        specifier: 1.32.0
+        version: 1.32.0
+      '@suture/core':
+        specifier: workspace:*
+        version: link:../core
+      apache-arrow:
+        specifier: 17.0.0
+        version: 17.0.0
+      exceljs:
+        specifier: 4.4.0
+        version: 4.4.0
+      pyodide:
+        specifier: 314.0.8
+        version: 314.0.8
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.5
+        version: 22.20.5
+      fast-check:
+        specifier: 4.10.3
+        version: 4.10.3
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: 4.1.12
+        version: 4.1.12(@types/node@22.20.5)(jiti@1.21.7)
+
   packages/web:
     dependencies:
       '@duckdb/duckdb-wasm':
@@ -212,6 +243,9 @@ importers:
       '@suture/core':
         specifier: workspace:*
         version: link:../core
+      '@suture/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       apache-arrow:
         specifier: 17.0.0
         version: 17.0.0

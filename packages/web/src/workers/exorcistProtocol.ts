@@ -1,6 +1,5 @@
 import type { ExorcistProgress, ExorcistVerdict, ReplayArtifact, ReplayOutcome, SutureDocument } from '@suture/core';
-import type { IsolationInfo } from './isolation.ts';
-import type { EngineName } from './protocol.ts';
+import type { EngineName, IsolationInfo } from '@suture/runtime/bridge';
 
 /** Spec 03 §6 — main thread ↔ Exorcist worker. */
 export type ExorcistCommand =

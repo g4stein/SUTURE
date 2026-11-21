@@ -1,9 +1,6 @@
 import { createWorkbookEngine, NEVER_CANCELLED, toCellKey, type CellValue } from '@suture/core';
 import { EngineHost, type WorkerFactory } from '../../src/workers/engineHost.ts';
-import { PyBridge, SqlBridge } from '../../src/workers/bridges.ts';
-import { detectIsolation } from '../../src/workers/isolation.ts';
-import { DeadlineExceeded, EngineCrashed } from '../../src/workers/portClient.ts';
-import type { EngineName } from '../../src/workers/protocol.ts';
+import { DeadlineExceeded, detectIsolation, EngineCrashed, PyBridge, SqlBridge, type EngineName } from '@suture/runtime/bridge';
 import { webClock, yieldControl } from '../../src/engines/hostAdapters.ts';
 
 const workers: WorkerFactory = (kind) => {

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "paths": {
+      "duckdb-wasm-blocking": ["./node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.d.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/node"]
+}

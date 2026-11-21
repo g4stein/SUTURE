@@ -1,0 +1,31 @@
+{
+  "name": "@suture/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./engines": "./src/engines/index.ts",
+    "./bridge": "./src/bridge/index.ts",
+    "./workbooks": "./src/workbooks/index.ts",
+    "./node": "./src/node/index.ts",
+    "./python/suture_bridge.py": "./src/engines/python/suture_bridge.py"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "@suture/core": "workspace:*",
+    "apache-arrow": "17.0.0",
+    "exceljs": "4.4.0",
+    "pyodide": "314.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "fast-check": "4.10.3",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12"
+  }
+}
