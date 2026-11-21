@@ -112,9 +112,27 @@ function subgraphOf(engine: WorkbookEngine, inputs: ReadonlyArray<CellKey>, targ
 
 // ---------------------------------------------------------------- arbitraries
 
+const U32_MAX = 0xffffffff;
+
+/**
+ * Uniform over VALUES in [min, max] (Spec 03 §4.1). fc.double is uniform over IEEE-754 bit patterns, so on a domain such
+ * as [0, 0.35] almost every draw lands within a few ulps of 0 and the upper half of the domain is starved (measured: the
+ * Flagship 2 flaw was hit ~20× less often than its 7.4 % share of the domain). A 32-bit integer mapped linearly keeps
+ * what fast-check gives integers: deterministic generation from the seed, bias toward its bounds (k = 0 → exactly min,
+ * k = 2^32 − 1 → exactly max), and shrinking toward k = 0, i.e. toward min.
+ */
+function uniformFloat(min: number, max: number): fc.Arbitrary<number> {
+  if (min === max) return fc.constant(min);
+  return fc.integer({ min: 0, max: U32_MAX }).map((k) => {
+    const t = k / U32_MAX;
+    const x = min * (1 - t) + max * t; // lerp form: exact at both ends and never overflows for finite bounds
+    return x < min ? min : x > max ? max : x;
+  });
+}
+
 function domainArb(d: FuzzDomain): fc.Arbitrary<ScalarValue> {
   switch (d.kind) {
-    case 'float': return fc.double({ min: d.min, max: d.max, noNaN: true, noDefaultInfinity: true });
+    case 'float': return uniformFloat(d.min, d.max);
     case 'integer': return fc.integer({ min: d.min, max: d.max });
     case 'choice': return fc.constantFrom(...d.values);
     case 'boolean': return fc.boolean();
