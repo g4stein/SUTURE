@@ -214,7 +214,7 @@ export function computeXRayFrame(input: {
 
 - There is one `<svg>` with `pointer-events: none` and `aria-hidden="true"`.
 - Per thread, the `<path>` has `stroke` set to the engine token, a `stroke-dasharray` of `6 4` (SQL), `2 4` (Python), or none (Formula), a width of 1.25, and an opacity of 0.55. Threads touching the selection are drawn at width 2 and opacity 1.
-- Fractured paths use the `fracture` stroke at width 2 with the class `suture-pulse`, and set `pointer-events: stroke`, `role="button"`, `tabindex=0`, and an `aria-label` such as "Failing lineage from Params!B2 to Summary!B7, open counterexample". Clicking one, or pressing Enter, dispatches the open-counterexample action (Req 5.7).
+- Fractured paths use the `fracture` stroke at width 2 with the class `suture-pulse`, and set `pointer-events: stroke`, `role="button"`, `tabindex=0`, and an `aria-label` such as "Failing lineage from Params!B2 to Margins!B5, open counterexample". Clicking one, or pressing Enter, dispatches the open-counterexample action (Req 5.7).
 - CSS:
   ```css
   @keyframes suture-pulse { from { opacity: 1 } to { opacity: .35 } }
@@ -262,9 +262,13 @@ export function gatedPyEngine(inner: PyEngine, isTrusted: () => boolean): PyEngi
 
 ## 7. Flagship workbooks (`workbooks/`)
 
-Both documents are static JSON files (`saas-runway.suture.json`, `ecommerce-margin.suture.json`), validated by `isSutureDocument` in a unit test. Their `workbookHash` values are computed at build time into `workbooks/flagshipHashes.ts`, which replay links use (Req 7.3).
+Both documents are TypeScript modules (`workbooks/saasRunway.ts`, `workbooks/ecommerceMargin.ts`) that build a `SutureDocument` with the helpers in `workbooks/build.ts`. Each module also exports `WorkbookNotes` (the flaw, the control edit, and the expected assertion id), which the estimation and control tests use. SQL and Python sources are exported constants, so tests and docs reference one copy. Built-in hashes are computed at runtime with `workbookHash` over the canonical definition. Replay links (Req 7.3) compare against those hashes, so no generated hash file can drift from the source.
 
-### 7.1 SaaS Cash Runway & Unit Economics (in-process)
+Both flagships run in **batched** mode (Spec 03): each contains `=SQL()` and `=PY()` cells. Neither uses `monotonicWith`. The engine still implements and tests it (Spec 03).
+
+### 7.1 SaaS Cash Runway & Unit Economics (batched)
+
+The data flow is DuckDB cohort SQL → Pyodide NumPy OLS (`Model!B4`) → the unguarded formula `Model!B5 = cash / B4`.
 
 Sheet `Inputs` (column A holds labels, which are literal strings):
 
@@ -277,36 +281,49 @@ Sheet `Inputs` (column A holds labels, which are literal strings):
 | B6 | Monthly logo churn | 0.025 | float [0.005, 0.08] |
 | B7 | Blended CAC | 9000 | float [4000, 14000] |
 | B8 | Gross margin | 0.78 | float [0.70, 0.85] |
-| B9 | Opex excl. S&M (monthly) | 210000 | float [150000, 260000] |
+| B9 | Opex excl. S&M (monthly) | 450000 | float [300000, 600000] |
+| B10 | Churn shock × | 1 | float [0.25, 3] |
+
+Sheet `Cohorts`:
+
+| Cell | Engine | Content |
+|---|---|---|
+| A1 | DuckDB | `COHORT_BASE_SQL`: 12 monthly signup cohorts, `intake_factor = 0.85 + 0.30·suture_u01(m, 11)`. It has no inputs, so it is computed once and cached across every scenario. |
+| A3 | DuckDB | `TRAJECTORY_SQL`: the 12-month operating trajectory. Legacy MRR decays with `churn = B6·B10`. Each cohort's survivors decay by the same churn. Opex grows 2% a month. Columns: `month, gross_profit, sm_spend, opex, net_burn`. Every `Inputs` value is a bound prepared-statement parameter (Spec 02 §5.2). |
 
 Sheet `Model`:
 
 | Cell | Label | Formula | Base value |
 |---|---|---|---|
-| B2 | Gross profit | `=Inputs!B3*Inputs!B8` | 234000 |
-| B3 | S&M spend | `=Inputs!B4*Inputs!B7` | 270000 |
-| B4 | Net burn | `=Inputs!B9+B3-B2` | 246000 |
-| B5 | Runway (months) | `=Inputs!B2/B4` | 24.390243902439025 |
+| B2 | Gross profit (month 0) | `=Inputs!B3*Inputs!B8` | 234000 |
+| B3 | S&M spend (monthly) | `=Inputs!B4*Inputs!B7` | 270000 |
+| B4 | Projected net burn (OLS, month 13) | `=PY(BURN_PY)`: `np.linalg.lstsq` of `net_burn` on `[1, month]`, evaluated at month 13 | 275710.02 (rounded) |
+| B5 | Runway (months) | `=Inputs!B2/B4` | 21.76 (rounded) |
 | B6 | Runway status | `=IF(B5<12,"RAISE NOW",IF(B5<18,"PLAN RAISE","OK"))` | OK |
-| B7 | Net new MRR | `=Inputs!B4*Inputs!B5-Inputs!B3*Inputs!B6` | 37500 |
-| B8 | LTV | `=Inputs!B5*Inputs!B8/Inputs!B6` | 46800 |
+| B7 | Net new MRR | `=Inputs!B4*Inputs!B5-Inputs!B3*Inputs!B6*Inputs!B10` | 37500 |
+| B8 | LTV | `=Inputs!B5*Inputs!B8/(Inputs!B6*Inputs!B10)` | 46800 |
 | B9 | LTV / CAC | `=B8/Inputs!B7` | 5.2 |
 | B10 | CAC payback (months) | `=Inputs!B7/(Inputs!B5*Inputs!B8)` | 7.6923076923076925 |
 
 Assertions, in document order:
 1. `runway-non-negative`: `Model!B5` `gte` const 0.
 2. `runway-defined`: `Model!B5` `notError`.
-3. `payback-finite`: `Model!B10` `finite`.
-4. `net-new-mrr-grows-with-logos`: `Model!B7` `monotonicWith(Inputs!B4, nonDecreasing)`.
+3. `runway-finite`: `Model!B5` `finite`.
 
-The flaw: `Model!B5` divides cash by net burn without handling a company that is profitable (net burn ≤ 0). When gross profit exceeds opex plus S&M, runway goes negative, or becomes `#DIV/0!` at exactly zero, and `B6` tells a profitable company to "RAISE NOW". At the base case, net burn is 246,000 and every assertion holds.
+The flaw: `Model!B5` divides cash by projected net burn without handling a company that turns profitable (projected net burn ≤ 0). With high MRR, margin, and ARPA, low churn, and low opex, the burn trend crosses zero. Runway then goes negative, or becomes `#DIV/0!` at exactly zero, and `B6` tells a profitable company to "RAISE NOW". At the base case, every assertion holds.
 
 The expected violated assertion is `runway-non-negative`. It comes first in document order, and both a negative number and `#DIV/0!` fail `gte`.
 
 - **Control (Req 10.4):** the corrected formula is the standard division guard `=IF(B4<=0,120,Inputs!B2/B4)`, which caps runway at 120 months ("10+ years") for companies that are not burning cash. `IF` short-circuits (Spec 01 Req 7.6), so the division never runs when `B4 ≤ 0`. The shipped `Model!B5` stays unguarded, so the Exorcist still has a real cliff to find.
-- **Estimation:** the failing region is `Inputs!B3·Inputs!B8 ≥ Inputs!B9 + Inputs!B4·Inputs!B7`, at the corner of high MRR and margin with low opex, logos, and CAC. Req 10.3 requires it to cover at least 1% of the domain.
+- **Estimation:** the failing region is where the month-13 OLS projection of net burn is ≤ 0. Measured over 1,000 uniform samples: 10.4% fail with the flaw and 0% with the control.
 
 ### 7.2 100,000-Row E-Commerce Margin Audit (batched)
+
+The sheets are `Params, Orders, Segments, Cohorts, Model, Margins`. The DAG has two layers:
+- **Upstream of `Params` (computed once, cached across every scenario):** `Orders!A1` synthesizes the 100,000 orders, and `Segments!A1` collapses them into a 96-row tier table. Neither depends on any fuzzed input, so batched evaluation (Spec 01 §8) never re-runs them.
+- **Downstream of `Params` (per scenario):** `Segments!A3` stress SQL over the 96 tiers, the NumPy pivot and model in `Model`, the `Cohorts` lookups, and the `Margins` KPIs.
+
+No fuzz scenario re-scans the 100,000 rows.
 
 Sheet `Params`:
 
@@ -316,8 +333,9 @@ Sheet `Params`:
 | B3 | Loyalty discount | 0.05 | float [0, 0.20] |
 | B4 | Discount cap (policy) | 0.25 | float [0.15, 0.30] |
 | B5 | Shipping cost per order | 3.5 | — |
+| B6 | Unit cost shock × | 1 | float [0.95, 1.10] |
 
-Sheet `Data`, cell A1 (dataset synthesis; deterministic per Spec 02 §5.4):
+Sheet `Orders`, cell A1 (`ORDERS_SQL`, dataset synthesis; deterministic per Spec 02 §5.4):
 
 ```sql
 =SQL("WITH base AS (
@@ -341,123 +359,103 @@ FROM base
 ORDER BY i")
 ```
 
-Sheet `Margins`, cell A1 (segment margins with the flawed discount logic):
+Sheet `Segments`:
 
-```sql
-=SQL("SELECT category,
-       CASE WHEN has_promo AND is_loyal THEN 'stacked' WHEN has_promo THEN 'promo'
-            WHEN is_loyal THEN 'loyal' ELSE 'none' END AS cohort,
-       sum(quantity * list_price * (1 - d)) AS revenue,
-       sum(quantity * list_price * (1 - d) - quantity * unit_cost - {{Params!B5}}) AS margin
-FROM (
-  SELECT *,
-         least(base_discount, {{Params!B4}})
-       + CASE WHEN has_promo THEN least({{Params!B2}}, {{Params!B4}}) ELSE 0 END
-       + CASE WHEN is_loyal  THEN least({{Params!B3}}, {{Params!B4}}) ELSE 0 END AS d
-  FROM {{Data!A1}}
-)
-GROUP BY ALL
-ORDER BY category, cohort")
-```
+| Cell | Engine | Content |
+|---|---|---|
+| A1 | DuckDB | `TIERS_SQL`: `GROUP BY category, base_discount, has_promo, is_loyal` over `{{Orders!A1}}`, giving 8 × 3 × 2 × 2 = 96 rows with `orders, units, gross = Σ quantity·list_price, cost = Σ quantity·unit_cost`. It does not depend on `Params`, so it is computed once. |
+| A3 | DuckDB | `STRESS_SQL` (the flaw, below): per tier, `d = least(base_discount, cap) + [promo] least(promo, cap) + [loyal] least(loyal, cap)`. Grouped by category and cohort (`stacked`, `promo`, `loyal`, `none`): `revenue = Σ gross·(1−d)`, `margin = Σ gross·(1−d) − cost·shock − orders·ship`, `stacked_discount = Σ gross·d / Σ gross`. |
 
-Sheet `Cohorts` (rows 2–9, one per category, ordered Electronics, Home, Sports, Toys, Apparel, Beauty, Grocery, Books):
+The discount `d` is constant inside a tier. So `Σ q·p·(1−d) − Σ q·c·shock − n·ship` over a tier equals the per-order scan exactly, up to float summation order. Each scenario reads 96 rows, not 100,000.
+
+Sheet `Model`:
+
+| Cell | Content |
+|---|---|
+| B2 | `=PY(PIVOT_PY)`: an 8 × 2 `Matrix2D` of stacked-cohort margin and revenue per category, in the order Electronics, Home, Sports, Toys, Apparel, Beauty, Grocery, Books. |
+| B3 | `=PY(MODEL_PY)`: revenue-weighted `np.linalg.lstsq` of margin % on stacked discount plus category effects over the `Segments!A3` rows. Returns a 1 × 2 `Matrix2D`: the projected Electronics margin % at the maximum stacked discount `0.10 + 2·cap`, and the number of cohort anomalies with \|z\| > 2. |
+
+Sheet `Cohorts` (rows 2–9, one per category, in the `Model!B2` order):
 
 | Column | Content |
 |---|---|
 | A | category literal |
 | B | segment literal: `Hardlines` (Electronics, Home, Sports, Toys), `Softlines` (Apparel, Beauty), `Consumables` (Grocery, Books) |
-| C | `=SQL("SELECT coalesce(sum(margin), 0) FROM {{Margins!A1}} WHERE category = {{A2}} AND cohort = 'stacked'")` (row-adjusted) |
-| D | `=SQL("SELECT coalesce(sum(revenue), 0) FROM {{Margins!A1}} WHERE category = {{A2}} AND cohort = 'stacked'")` (row-adjusted) |
+| C | `=INDEX(Model!B2, r, 1)` stacked margin |
+| D | `=INDEX(Model!B2, r, 2)` stacked revenue |
+| E | `=C/D` stacked margin % |
 
-Sheet `Model`, cell B2 (NumPy OLS and anomaly detection; scalar-loop batch mode):
-
-```python
-=PY("d = inputs['Data!A1']
-promo, loyal, cap, ship = inputs['Params!B2'], inputs['Params!B3'], inputs['Params!B4'], inputs['Params!B5']
-lp, uc = d['list_price'], d['unit_cost']
-q = d['quantity'].astype(np.float64)
-disc = (np.minimum(d['base_discount'], cap)
-        + np.where(d['has_promo'], min(promo, cap), 0.0)
-        + np.where(d['is_loyal'], min(loyal, cap), 0.0))
-pct = (q * lp * (1.0 - disc) - q * uc - ship) / (q * lp)
-cats = np.array(d['category'])
-names = np.unique(cats)
-X = np.column_stack([np.ones_like(disc), disc] + [(cats == c).astype(np.float64) for c in names[1:]])
-beta = np.linalg.lstsq(X, pct, rcond=None)[0]
-resid = pct - X @ beta
-z = (resid - resid.mean()) / resid.std()
-x = np.zeros(X.shape[1]); x[0] = 1.0
-x[1] = min(0.10, cap) + min(promo, cap) + min(loyal, cap)
-k = int(np.searchsorted(names, 'Electronics'))
-if k > 0: x[1 + k] = 1.0
-np.array([[float(x @ beta), float(np.count_nonzero(np.abs(z) > 4.0))]])")
-```
-
-This code reproduces the workbook's flawed discount logic, so the model and the SQL agree. Its result is a 1×2 `Matrix2D`: the projected Electronics margin % at the maximum stacked discount, and the number of orders with |z| > 4.
-
-Sheet `Summary`:
+Sheet `Margins`:
 
 | Cell | Label | Formula |
 |---|---|---|
-| B2 | Total margin | `=SQL("SELECT sum(margin) FROM {{Margins!A1}}")` |
-| B3 | Total revenue | `=SQL("SELECT sum(revenue) FROM {{Margins!A1}}")` |
-| B4 | Margin % | `=B2/B3` |
-| B5 | Stacked-cohort margin | `=SUM(Cohorts!C2:C9)` |
-| B6 | Hardlines stacked margin | `=SUMIFS(Cohorts!C2:C9,Cohorts!B2:B9,"Hardlines")` |
-| B7 | Hardlines stacked margin % | `=B6/SUMIFS(Cohorts!D2:D9,Cohorts!B2:B9,"Hardlines")` |
-| B8 | Discount policy status | `=IF(B7<0,"BREACH","OK")` |
-| B9 | Model: projected Electronics margin % at max stack | `=INDEX(Model!B2,1,1)` |
-| B10 | Model: residual anomalies (abs z > 4) | `=INDEX(Model!B2,1,2)` |
+| B2 | Total margin | `=SQL("SELECT sum(margin) FROM {{Segments!A3}}")` |
+| B3 | Stacked-cohort margin | `=SUM(Cohorts!C2:C9)` |
+| B4 | Hardlines stacked margin | `=SUMIFS(Cohorts!C2:C9,Cohorts!B2:B9,"Hardlines")` |
+| B5 | Hardlines stacked net margin % | `=B4/SUMIFS(Cohorts!D2:D9,Cohorts!B2:B9,"Hardlines")` (base value 0.3235, rounded) |
+| B6 | Average stacked margin % (Softlines) | `=AVERAGEIF(Cohorts!B2:B9,"Softlines",Cohorts!E2:E9)` |
+| B7 | Hardlines margin floor (policy) | `=VLOOKUP("Hardlines",D11:E13,2,FALSE)` over the literal policy table in `D10:E13` (Hardlines 0.05, Softlines 0.12, Consumables 0.03) |
+| B8 | Discount policy status | `=IF(B5<B7,"BREACH","OK")` |
+| B9 | Model: projected Electronics margin % at max stack | `=INDEX(Model!B3,1,1)` |
+| B10 | Model: cohort anomalies (\|z\| > 2) | `=INDEX(Model!B3,1,2)` |
 
 Assertions, in document order:
-1. `hardlines-stacked-margin-non-negative`: `Summary!B7` `gte` const 0.
-2. `total-margin-non-negative`: `Summary!B4` `gte` const 0.
-3. `more-promo-never-raises-margin`: `Summary!B2` `monotonicWith(Params!B2, nonIncreasing)`.
-4. `model-projection-finite`: `Summary!B9` `finite`.
+1. `hardlines-stacked-net-margin`: `Margins!B5` `gte` const 0.
+2. `total-margin-not-null`: `Margins!B2` `notNull`.
+3. `model-projection-finite`: `Margins!B9` `finite`.
 
-The flaw: the policy says the stacked discount per order must not exceed the cap. The workbook caps each discount separately, so a promo-plus-loyal order can receive up to `0.10 + cap + 0.20`, which is 0.60 at the domain maximum.
+The flaw: the policy says the stacked discount per order must not exceed the cap. `STRESS_SQL` caps each discount separately, so a promo-plus-loyal order can receive up to `0.10 + least(promo, cap) + least(loyalty, cap)`, which is 0.10 + 0.30 + 0.20 = 0.60 at the domain maximum. At the base case, the stacked discount is at most 0.25 and the Hardlines stacked net margin is 0.3235. With high promo and loyalty, a cap near its maximum, and a cost shock above 1, the Hardlines stacked cohort goes negative.
 
-At the base case, the stacked discount is at most 0.25 and the Hardlines stacked margin is clearly positive (about 0.3 by the design estimate: (1 − 0.20 − 0.50 − 0.04) / 0.80). With high promo and loyalty and a cap above about 0.21, Hardlines' stacked cohort (average cost ratio about 0.50, shipping about 4% of list) goes negative.
+The expected violated assertion is `hardlines-stacked-net-margin`.
 
-`total-margin-non-negative` cannot fail inside the domain:
-- The promo-only cohort's worst discount is 0.40, which leaves (0.60 − 0.495 − 0.04) / 0.60 > 0.
-- The stacked cohort is 7.5% of orders.
+- **Control (Req 10.4):** `Segments!A3` with `d` replaced by `least(base_discount + CASE WHEN has_promo THEN {{Params!B2}} ELSE 0 END + CASE WHEN is_loyal THEN {{Params!B3}} ELSE 0 END, {{Params!B4}})` (`STRESS_SQL_FIXED`).
+- **Estimation:** measured over 1,000 uniform samples: 7.4% fail with the flaw and 0% with the control.
 
-So the expected violated assertion is `hardlines-stacked-margin-non-negative`. The estimation and control tests check both claims.
+### 7.3 Performance
 
-- **Monotonicity holds exactly:** a higher `Params!B2` gives a weakly larger `least(promo, cap)`, and IEEE rounding is monotone. DuckDB sums with `threads = 1` in a fixed order, so `Summary!B2` is non-increasing bit for bit.
-- **Control (Req 10.4):** `Margins!A1` with `d` replaced by `least(base_discount + CASE WHEN has_promo THEN {{Params!B2}} ELSE 0 END + CASE WHEN is_loyal THEN {{Params!B3}} ELSE 0 END, {{Params!B4}})`.
-- **Cross-engine probes (Spec 03 §4.3):** these run on every numeric column of `Data!A1` bound into `Model!B2` (`order_id`, `list_price`, `unit_cost`, `quantity`, `base_discount`). All values are non-negative, so summation error is about 1e-13 relative, far inside 1e-9.
+Both flagships use `batchSize: 100` and `maxBatches: 10`. Flagship 1 uses `maxShrinkRounds: 32` and flagship 2 uses `maxShrinkRounds: 24`. Decimal simplification (Spec 03) finishes the shrink. The longer double-shrink tail adds seconds without making the counterexample clearer.
 
-### 7.3 Performance expectations for flagship 2
+Per scenario, flagship 1 runs one trajectory query over a 12-row cohort table and one 12-point least-squares fit. Flagship 2 runs one stress query over the 96 tiers, two small NumPy calls, and one total-margin query. The 100,000-row synthesis and the tier aggregation run once per workbook load.
 
-These numbers are targets for measurement, not budgets: each batch makes 1 + 2 + 16 + 1 = 20 engine cell calls (`Margins!A1`, `Summary!B2`, `Summary!B3`, `Cohorts!C2:D9`, `Model!B2`) plus up to 2 probe calls. Flagship 2 has one `monotonicWith` assertion, so each 200-run batch evaluates up to 400 scenarios. The heaviest calls are `Margins!A1` (up to 400 group-bys over 100k rows) and `Model!B2` (up to 400 least-squares fits on 100k × 9). The Exorcist panel shows measured progress, and the CI test (§8) records duration.
+Targets: flagship 1 discovers its flaw from a fresh seed in at most 3 s in the browser. Flagship 2 does so in 5–10 s.
 
-## 8. CI tests for flagship discovery (`packages/web/test/flagships.spec.ts`)
+Measured on the Phase 3 build after float domains became uniform over values (Spec 03 §4.1, commit dc77fb6). Times are search + shrink + decimal simplification, from fresh random seeds:
+
+| Flagship | Node, real engines | Browser (Playwright, Chromium) | Index of the first failing run |
+|---|---|---|---|
+| 1 | 1.9–3.0 s (7 seeds) | 2.9 s (2 seeds) | 0–5 (Node) |
+| 2 | 3.9–11.6 s (7 seeds; 2 above 10 s) | 4.0–10.7 s (6 seeds; 1 above 10 s) | 1–32 |
+
+Before that change, flagship 2's first failing run came at index 17–737 over 8 seeds. That is about 0.36% of runs, so about 3% of seeds would have found nothing in 1,000 runs. Its Node discovery took 3.4–18.3 s.
+
+The search phase now finishes inside the first batch. The remaining spread comes from shrinking: every flagship 2 run uses all 24 shrink rounds, and the seed decides how far into each candidate stream (4, 16, 64, … candidates) the next failing candidate sits. Lowering `maxShrinkRounds`, or stopping once decimal simplification would produce the same values, are open tuning options. They have not been applied.
+
+## 8. Tests for flagship discovery
+
+The flagship tests run against **real engines**, never mocks:
+- **Node:** `packages/web/test/flagships.test.ts` uses the host-agnostic handlers (Spec 02 §2) through `test/hosts/nodeEngines.ts`, with DuckDB's Node build and Pyodide with NumPy.
+- **Browser:** `packages/web/e2e/flagships.spec.ts` runs both flagships in Chromium. For each one it checks that the base case holds, discovers the flaw from a fresh seed, uses Apply Counterexample to trip the assertion, and replays the artifact exactly.
 
 ```mermaid
 sequenceDiagram
-  participant T as Playwright test
-  participant P as Page
-  participant X as Exorcist worker
+  participant T as Test (Node or Playwright)
+  participant S as Exorcist session (Node) or page + Exorcist worker (browser)
   T->>T: seed = crypto.getRandomValues(Int32Array(1))[0]; log seed
-  T->>P: open flagship (built-in), start Exorcist with seed
-  P->>X: start
-  X-->>P: verdict
-  T->>P: read verdict
+  T->>S: open flagship (built-in), start Exorcist with seed
+  S-->>T: verdict
   T->>T: expect verdict.kind === 'violated'
-  T->>T: expect assertion id === expected id (§7.1 / §7.2)
-  T->>P: open replay fragment from verdict
+  T->>T: expect assertion id === WorkbookNotes.expectedAssertion
+  T->>S: replay the artifact (Node: decoded fragment; browser: replay link)
   T->>T: expect outcome.kind === 'reproduced' && exact === true
 ```
 
 Rules (Req 10.2):
-- The test source contains no input values, no counterexamples, and no fixed seeds.
-- It asserts only verdict kinds, assertion ids, and replay outcomes.
+- The test source contains no input values, no counterexamples, and no fixed discovery seeds.
+- It asserts only verdict kinds, assertion ids, and replay outcomes. Seeds, shrunk inputs, and timings are logged for the audit trail.
 
-The estimation and control tests are deterministic. They use `fc.sample(arb, { seed: 1, numRuns: N })` with **unbiased** arbitraries (`fc.noBias`), with N = 20,000 runs for flagship 1 (in-process, Node) and N = 2,000 runs for flagship 2 (batched, Playwright). Each test then:
+The estimation and control tests are deterministic and run in Node against real engines. They use `fc.sample(arb, { seed: 1, numRuns: 1000 })` for both flagships. The arbitraries are uniform over values: `fc.noBias(fc.integer({ min: 0, max: 2^32 − 1 }))` mapped onto the float domain. `fc.double` is uniform over float bit patterns, which piles mass near 0 on small domains. Scenarios are evaluated with `evaluateScenarioBatch` in chunks of 100. Each test then:
 - asserts that the failing fraction under the shipped formulas is at least 1%;
-- applies the corrected formula as an `Edit` to a copy of the document, and asserts zero violations of the expected assertion over the same samples.
+- applies the corrected formula (`WorkbookNotes.control`) as an `Edit` to a fresh engine, and asserts zero violations of the expected assertion over the same samples.
 
 ## 9. Trademark check (`packages/web/test/trademark.spec.ts`)
 
@@ -475,3 +473,29 @@ The estimation and control tests are deterministic. They use `fc.sample(arb, { s
 | Untrusted Python | `#PY!` "blocked" until trusted; no Pyodide download |
 | Over 1,500 threads | partial X-Ray with a hidden-count chip |
 | Session stale | verdict labelled stale; replay still possible against the snapshot hash |
+
+## 11. Telemetry
+
+The telemetry strip never reports WASM cold boot as DAG latency. It shows these values separately:
+
+| Field | Source | Meaning |
+|---|---|---|
+| cold boot DuckDB | `EngineHost.telemetry().duckdbInitMs` | worker start → engine ready (WASM download, compile, init) |
+| cold boot Pyodide | `EngineHost.telemetry().pyodideInitMs` | worker start → Python + NumPy ready |
+| first eval | `AppStore` | first recalculation of the open workbook, including any engine boot it triggered |
+| warm DAG eval | `AppStore` | latest recalculation in which no engine booted or respawned |
+
+`AppStore.recalc` records the engine boot count before and after each recalculation. A recalculation that booted or respawned an engine never updates `warm DAG eval`. Opening another workbook resets both eval fields. On the Phase 3 build, the slice workbook measured a 13 ms warm DAG eval, with cold boots of about 1.2 s for DuckDB and 2.7 s for Pyodide.
+
+## 12. Temporary Phase 3 verification UI (`app/App.tsx`, `app/store.ts`)
+
+Until the Phase 4 grid, inspector, and X-Ray overlay land, a minimal UI exposes the engine for E2E tests and demos. Phase 4 replaces it.
+
+- **Workbook picker** (`data-testid="workbook-picker"`): Slice, Flagship 1, or Flagship 2, from `WORKBOOKS` in `store.ts`. Switching stops a running session and recalculates.
+- **Cell list:** every non-empty cell with its raw source and current value, grouped by sheet, plus a "new cell" form (reference + source) for querying imported datasets.
+- **Assertion chips:** one per assertion, showing whether it holds at the current values.
+- **Import file** (`data-testid="import-file"`): accepts `.csv`, `.parquet`, `.xlsx`. CSV and Parquet register a dataset. XLSX adds its sheets and registers each sheet table. Each import produces an import report row (`data-testid="import-report"`).
+- **Exorcist controls:** Run and Stop, the verdict with seed, path, and shrunk inputs, the lineage strip, Apply Counterexample, and the replay link.
+- **Telemetry strip** (§11).
+
+These elements use the steering design tokens and carry no third-party product names.

@@ -53,12 +53,20 @@ File layout (`packages/web/src/workers/`):
 - `protocol.ts` (all message types and type guards);
 - `portClient.ts`;
 - `engineHost.ts`;
-- `sqlBridge.ts` and `pyBridge.ts` (implementing the core ports);
-- `duckdb.worker.ts`;
-- `pyodide.worker.ts` with `python/suture_bridge.py` (embedded as a string at build time);
-- `arrowColumns.ts`;
-- `ingest.worker.ts`;
-- `isolation.ts`.
+- `bridges.ts` (`SqlBridge` and `PyBridge`, implementing the core ports);
+- `duckdbHandler.ts`, `duckdbIpc.ts`, `sqlValidate.ts`, and `datasetName.ts` (host-agnostic DuckDB request handling);
+- `duckdbBrowser.ts` and a thin `duckdb.worker.ts`;
+- `pyodideHandler.ts` with `python/suture_bridge.py` (embedded as a string at build time), `pyodideBrowser.ts`, and a thin `pyodide.worker.ts`;
+- `ingestHandler.ts` and a thin `ingest.worker.ts`;
+- `workerRuntime.ts` (the shared message loop), `arrowColumns.ts`, and `isolation.ts`.
+
+### 1.1 Host-agnostic handlers
+
+Each engine's request handling is written once, with no DOM or worker globals. Only the code that opens the engine differs per host:
+- **Browser:** `duckdbBrowser.ts` and `pyodideBrowser.ts` instantiate the WASM builds, and each `*.worker.ts` file only wires a handler to the worker message loop.
+- **Node tests:** `test/hosts/nodeEngines.ts` instantiates DuckDB's Node build and Pyodide with NumPy, and connects the same handlers through a `DirectClient` that implements the `PortClient` contract in-process.
+
+So the Node real-engine tests (flagships, slice, Option C) exercise the production handler code, not a mock. Production code contains no fault-injection hooks. The E2E harness builds separate chaos workers (`e2e/harness/*.chaos.worker.ts`) with `vite.e2e.config.ts`, injects them through `WorkerFactory` (§7), and writes them to `dist-e2e/`, which never ships.
 
 ## 2. Isolation detection (`isolation.ts`)
 
@@ -190,15 +198,18 @@ export type PyRequest =
 
 /* ---------- Ingest ---------- */
 
+/** A cell imported from a spreadsheet file (0-based): formulas and error values as source text, values as lossless literals. */
+export type IngestCell =
+  | { readonly row: number; readonly col: number; readonly kind: 'raw'; readonly raw: string }        // applied as setCell
+  | { readonly row: number; readonly col: number; readonly kind: 'literal'; readonly value: ScalarValue }; // applied as setLiteral
+
 export interface XlsxIngestResult {
-  readonly sheets: ReadonlyArray<{
-    readonly name: string;
-    readonly cells: ReadonlyArray<{ readonly row: number; readonly col: number; readonly raw: string }>; // 0-based
-  }>;
-  readonly tables: ReadonlyArray<{
+  readonly sheets: ReadonlyArray<{ readonly name: string; readonly cells: ReadonlyArray<IngestCell> }>;
+  readonly tables: ReadonlyArray<{          // one per sheet; cached formula results as values; IPC bytes are transferred
     readonly sheet: string;
     readonly ipc: Uint8Array;
     readonly header: 'firstRow' | 'columnLetters';
+    readonly rowCount: number;
   }>;
   readonly warnings: ReadonlyArray<string>;
 }
@@ -213,7 +224,7 @@ export type WorkerRequest = DuckDbRequest | PyRequest | IngestRequest;
 export type WorkerResult =
   | { readonly kind: 'duckdb.ready'; readonly bundle: 'eh' | 'mvp'; readonly duckdbVersion: string; readonly validator: 'ast' | 'lexical' }
   | { readonly kind: 'py.ready'; readonly pyodideVersion: string; readonly numpyVersion: string; readonly interrupt: boolean }
-  | { readonly kind: 'dataset'; readonly meta: DatasetMeta }
+  | { readonly kind: 'dataset'; readonly meta: DatasetMeta; readonly preview: TableRef } // preview: first 100 rows
   | { readonly kind: 'ack' }
   | { readonly kind: 'value'; readonly value: CellValue; readonly resultId: ResultId | null }
   | { readonly kind: 'values'; readonly values: ReadonlyArray<CellValue>; readonly resultIds: ReadonlyArray<ResultId | null> }
@@ -598,7 +609,7 @@ export function validateSerializedSql(json: unknown, allowedTables: ReadonlySet<
 export function validateLexical(sql: string, allowedTables: ReadonlySet<string>): SqlValidation;         // §5.3.2
 ```
 
-The validator is chosen once per worker instance by the init probe and reported in `duckdb.ready`. Within one engine instance, the same SQL therefore always gets the same accept/reject decision. The lexical guard is deliberately stricter than the AST validator, so a query it rejects may be accepted by the AST validator, but never the reverse for the forbidden classes listed below.
+The validator is chosen once per worker instance by the init probe and reported in `duckdb.ready`. Within one engine instance, the same SQL therefore always gets the same accept/reject decision. Validation is a pure function of (validator, SQL text, allowed tables), so the handler memoizes it on that key. A batch of scenarios that share one SQL template validates it once. The lexical guard is deliberately stricter than the AST validator, so a query it rejects may be accepted by the AST validator, but never the reverse for the forbidden classes listed below.
 
 #### 5.3.1 AST validator (primary, when `json_serialize_sql` exists)
 
@@ -645,7 +656,9 @@ These macros are installed at initialization (internal DDL, not user SQL). Users
 ```sql
 CREATE OR REPLACE MACRO suture_m32(x)    AS (x::UBIGINT & 4294967295::UBIGINT);
 CREATE OR REPLACE MACRO suture_xs(x, s)  AS xor(x, x >> s);
-CREATE OR REPLACE MACRO suture_mul(x, c) AS ((x::HUGEINT * c) % 4294967296)::UBIGINT;
+-- x and c are < 2^32, so the product fits in 64 bits; masking replaces the HUGEINT modulo (Phase 3: 5× faster,
+-- bit-identical on 200,000 products against the HUGEINT form)
+CREATE OR REPLACE MACRO suture_mul(x, c) AS ((x::UBIGINT * c::UBIGINT) & 4294967295::UBIGINT);
 -- lowbias32, identical to core mix32's finalizer
 CREATE OR REPLACE MACRO suture_h32(x) AS
   suture_xs(suture_mul(suture_xs(suture_mul(suture_xs(suture_m32(x), 16), 2146121005), 15), 2221713035), 16);
@@ -740,7 +753,13 @@ export interface EngineHost {
   ingestXlsx(fileName: string, bytes: Uint8Array): Promise<XlsxIngestResult | { readonly error: string }>;
   retry(engine: EngineName): Promise<void>;
 }
+
+/** Injectable so the E2E harness can substitute fault-injecting workers; production uses `defaultWorkers`. */
+export type WorkerFactory = (kind: 'duckdb' | 'pyodide' | 'ingest') => Worker;
+// constructor(isolation: IsolationInfo, workers: WorkerFactory = defaultWorkers)
 ```
+
+`requestRespawn` restarts the engine only if `{portId, requestId}` is still the running job. A request that has already finished is never restarted.
 
 ```mermaid
 stateDiagram-v2
@@ -757,16 +776,20 @@ stateDiagram-v2
 
 On a crash (a `fatal` host event, `worker.onerror`, or a respawn request from a timeout). A `messageerror` is not a crash: it is handled as `protocolError` (Req 2.6, 9.7).
 1. Terminate the worker, and record `running = {portId, requestId}` from the last `jobStarted` without a matching `jobFinished`.
-2. Spawn a new worker. Replay init, then:
-   - **DuckDB:** re-register every retained dataset in its original order. Macros are re-installed during init.
-   - **Pyodide:** NumPy is imported during init.
-3. Create new client ports and a new peer port. Call `replacePort(newPort, runningRequestIdForThatPort, cause, reason)` on every client: the main `PortClient` directly, and the Exorcist through its `enginePortReplaced` message (Spec 03 §6), which carries the new `portId`.
+2. Zero the engine's control `SharedArrayBuffer` before spawning. A signal written for the job that forced the respawn must not reach the replacement: Pyodide would raise `KeyboardInterrupt` inside its own initialization (found by the hardening E2E).
+3. Spawn a new worker and create new client ports and a new peer port. Call `replacePort(newPort, runningRequestIdForThatPort, cause, reason)` on the main `PortClient`.
 4. `replacePort` resolves the running request by `cause`, the single rule used everywhere:
    - `deadline` → `#TIMEOUT!` (Req 3.6, 3.7);
    - `abort` → `cancelled`, which is never committed;
    - `crash` → `#SQL!`/`#PY!` with `engine crashed: <reason>` (Req 9.2).
-   It then re-sends, in original order, the requests that were sent but never started.
-5. The epoch increments, so old `ResultId`s miss and fall back via `missingTables`.
+   Requests that were sent but never started are **held**, not re-sent yet. A request whose transferred bytes were consumed by the crashed worker cannot be re-sent, so it rejects with `EngineCrashed`.
+5. Replay init. If init fails, the engine becomes `failed` and `failAll` resolves every held request as `#SQL!`/`#PY!`, so no request hangs.
+6. Restore state before any held request runs:
+   - **DuckDB:** re-register every retained dataset in its original order. Macros are re-installed during init.
+   - **Pyodide:** NumPy is imported during init.
+7. `resume()` re-sends the held requests in their original order, so they never overtake init or dataset restore.
+8. Notify external clients: the Exorcist gets its `enginePortReplaced` message (Spec 03 §6) with the new `portId`.
+9. The epoch increments, so old `ResultId`s miss and fall back via `missingTables`.
 
 Crash classification inside workers:
 - **DuckDB:** `WebAssembly.RuntimeError` and `RangeError` (memory growth) are fatal.
@@ -774,14 +797,15 @@ Crash classification inside workers:
 
 ## 8. Ingest worker (`ingest.worker.ts`)
 
-- `import { Workbook as XlsxWorkbook } from 'exceljs'`, then `new XlsxWorkbook().xlsx.load(bytes)`.
-- For each worksheet, for each cell:
-  - formula cells → `raw = "=" + cell.formula` (shared formulas are translated by exceljs);
-  - numbers, strings, and booleans → their literal text;
+- The logic lives in the host-agnostic `ingestHandler.ts`. `ingest.worker.ts` imports `Workbook` from `exceljs`, which resolves to exceljs's browser build through its `browser` field, and passes it in. Node tests pass the same build, loaded from `exceljs/dist/exceljs.min.js` with `createRequire`. exceljs's Node entry needs `unzipper`, which the workspace removes (`unzipper: "-"` override; its `buffers` dependency declares no license).
+- exceljs and its dependencies exist only in the lazily created ingest worker chunk, never in the main bundle.
+- `new Workbook().xlsx.load(bytes)`, then for each worksheet, for each cell:
+  - formula cells → `{kind:'raw', raw: "=" + formula}`. Shared formulas are translated by Suture's own `translateSharedFormula`: relative references shift by the offset from the master cell, `$`-anchored parts stay, and string literals and quoted sheet names are copied verbatim. exceljs's own translation shifted quoted sheet names (`'Q3 Plan'!B2` became `'Q4 Plan'!B3`);
+  - cached error values → `{kind:'raw', raw: <error literal>}`;
+  - numbers, strings, and booleans → `{kind:'literal', value}`, applied as `setLiteral`, so values round-trip losslessly (Spec 01 §4) and strings that look like formulas stay strings;
   - dates → the legacy serial number (days since 1899-12-30, fractional time) as a number literal;
   - rich text → concatenated plain text;
-  - hyperlinks → their text;
-  - cached error values → the error literal.
+  - hyperlinks → their text.
 - The table for each sheet uses its first row as the header when every first-row cell is a non-empty, unique string. Otherwise columns are named by their letters.
 - Column types are inferred as in Spec 01 `rangeToTableRef`, and the table is encoded with `apache-arrow` `tableToIPC`.
 - Unsupported features (merged cells beyond the top-left, data validation, macros, charts, external links) are skipped with a warning each.

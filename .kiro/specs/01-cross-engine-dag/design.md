@@ -347,17 +347,17 @@ A `Matrix2D` passed in a `rangeOrScalar` position is treated as a range of finit
 | `AVERAGE` | `(v1, …v255)` | FJ | zero numeric values → `#DIV/0!` (div set) |
 | `MIN` / `MAX` | `(v1, …v255)` | FJ | zero numeric values → `0` |
 | `COUNT` | `(v1, …v255)` | FJ | counts numbers only |
-| `COUNTA` | `(v1, …v255)` | FJ | counts non-null |
+| `COUNTA` | `(v1, …v255)` | N | counts non-null range members (including `TableRef`/`Matrix2D` members, §6.3); each scalar argument counts 1 |
 | `ROUND` | `(x, digits)` | N | half away from zero, computed on the shortest round-trip decimal string of `x` (`ROUND(1.005,2)=1.01`); `digits` truncated to an integer in [-308, 308], else `#NUM!` |
 | `ABS` | `(x)` | FJ | — |
 | `POWER` | `(base, exp)` | N | integer `exp` → binary exponentiation; `0^0` → `#NUM!`; `0^neg` → `#DIV/0!` (div set); negative base with non-integer `exp` → `#NUM!` |
 | `SQRT` | `(x)` | FJ | `x < 0` → `#NUM!` |
-| `MOD` | `(n, d)` | FJ | `d = 0` → `#DIV/0!` (div set, checked before the kernel); result takes the sign of `d` |
-| `SUMIF` | `(range, criteria, [sum_range])` | FJ | `sum_range` shape follows `range` |
-| `SUMIFS` | `(sum_range, crit_range1, crit1, …)` | FJ | all ranges must be the same shape, else `#VALUE!` |
-| `COUNTIF` | `(range, criteria)` | FJ | — |
-| `COUNTIFS` | `(crit_range1, crit1, …)` | FJ | same shape rule |
-| `AVERAGEIF` | `(range, criteria, [avg_range])` | FJ | no matches → `#DIV/0!` (div set) |
+| `MOD` | `(n, d)` | N | `d = 0` → `#DIV/0!` (div set, checked before the kernel); `n − d·floor(n/d)`, so the result takes the sign of `d` (`MOD(5,-3) = -1`) |
+| `SUMIF` | `(range, criteria, [sum_range])` | N | `sum_range` must have the same shape as `range`, else `#VALUE!` |
+| `SUMIFS` | `(sum_range, crit_range1, crit1, …)` | N | all ranges must be the same shape, else `#VALUE!` |
+| `COUNTIF` | `(range, criteria)` | N | — |
+| `COUNTIFS` | `(crit_range1, crit1, …)` | N | same shape rule |
+| `AVERAGEIF` | `(range, criteria, [avg_range])` | N | no matches → `#DIV/0!` (div set) |
 | `IF` | `(cond, then, [else=FALSE])` | N | short-circuit: `cond` first (error → propagates); then only the taken branch is evaluated (its error propagates); the untaken branch is never evaluated |
 | `AND` / `OR` | `(l1, …l255)` | N | no logical values found → `#VALUE!` |
 | `NOT` | `(l)` | N | — |
@@ -365,7 +365,7 @@ A `Matrix2D` passed in a `rangeOrScalar` position is treated as a range of finit
 | `ISERROR` | `(value)` | N | intercepts |
 | `ISBLANK` | `(value)` | N | `null` → `true`; error → propagates |
 | `ISNUMBER` | `(value)` | N | number → `true`; error → propagates |
-| `VLOOKUP` | `(key, table, col, [approx=TRUE])` | FJ | miss → `#N/A`; `col < 1` → `#VALUE!`; `col > width` → `#REF!` |
+| `VLOOKUP` | `(key, table, col, [approx=TRUE])` | N | exact match uses the criteria `=` rule (case-insensitive, wildcards); approximate match takes the last row whose same-typed key is ≤ the lookup key; miss → `#N/A`; `col < 1` → `#VALUE!`; `col > width` → `#REF!` |
 | `INDEX` | `(range \| Matrix2D, row, [col=1])` | N | 1-based; out of bounds or `row`/`col` = 0 → `#REF!` |
 | `MATCH` | `(key, range, [type=1])` | FJ | miss → `#N/A`; `range` must be 1-D, else `#N/A` |
 | `NPV` | `(rate, v1, …v254)` | N | `rate = -1` → `#DIV/0!` (div set); discount factors by binary exponentiation |
@@ -378,6 +378,11 @@ Kernel choice:
 - Native kernels exist where the steering forces semantics a library cannot give: short-circuit `IF`, eager error propagation (`AND`, `OR`, `NOT`, `ISBLANK`, `ISNUMBER`), interception (`IFERROR`, `ISERROR`), and `Matrix2D` support (`INDEX`).
 - They also exist where bit-identical determinism requires binary exponentiation (`POWER`, `NPV`, `PMT`, `IRR`) or decimal-correct rounding (`ROUND`).
 - Each FJ kernel has a conformance test against the table above. If a conformance test fails, the kernel is replaced with a native one in the same task.
+- Phase 3 replacements under that rule:
+  - `MOD`: formulajs returned `MOD(5,-3) = -2`. The result must take the divisor's sign (`-1`). Logged in `.kiro/audit/pbt-discoveries.md`.
+  - The criteria functions (`SUMIF`, `SUMIFS`, `COUNTIF`, `COUNTIFS`, `AVERAGEIF`): formulajs did not meet the criteria grammar above (strict error propagation, `~` escapes, the shape rule). They share one compiled matcher, `compileCriterion` in `functions/criteria.ts`.
+  - `VLOOKUP` reuses `compileCriterion` for exact match, and `COUNTA` counts members of `TableRef`/`Matrix2D` arguments, which formulajs cannot see.
+- formulajs still provides `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `ABS`, `SQRT`, and `MATCH`.
 
 `fast-formula-parser` is used as a dev-dependency differential oracle (Spec 03 task 2.4). It is not used in production, for these reasons:
 1. It exposes no AST, which rules out allowlist enforcement before evaluation and the print round-trip.
@@ -535,7 +540,7 @@ sequenceDiagram
   WB->>S: generation g, dirty set
   S->>S: Tarjan → Kahn heap
   S->>S: evaluate formula cells (sync)
-  S->>SQL: evaluate(Margins!A1 request, token g)
+  S->>SQL: evaluate(Segments!A3 request, token g)
   S->>PY: evaluate(Model!B2 request, token g)
   SQL-->>S: {kind:'value', value: TableRef}
   S->>S: commit, release dependents
