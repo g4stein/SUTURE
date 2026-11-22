@@ -1,14 +1,14 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SAAS_NOTES, saasRunwayDocument } from '@suture/runtime/workbooks';
+import { callTool as call, freshSeed, StdioClient as Client, TOOLS, type Json } from './rpc.ts';
 
 /**
- * Spec 05 Req 3 — the compiled MCP server as a child process over real stdio, with a minimal JSON-RPC 2.0 client
- * written here (not the SDK's), so the wire format itself is under test. Both protocol eras are exercised. The audit
+ * Spec 05 Req 3 — the compiled MCP server as a child process over real stdio, driven by the hand-written JSON-RPC 2.0
+ * client in `rpc.ts` (not the SDK's), so the wire format itself is under test. Both protocol eras are exercised. The audit
  * seed comes from the OS CSPRNG; the test asserts only verdicts and assertion ids.
  */
 const BIN = fileURLToPath(new URL('../dist/suture-mcp.mjs', import.meta.url));
@@ -18,72 +18,8 @@ mkdirSync(join(root, 'models'), { recursive: true });
 writeFileSync(join(root, 'models', 'runway.suture.json'), JSON.stringify(saasRunwayDocument()));
 writeFileSync(join(base, 'outside.suture.json'), JSON.stringify(saasRunwayDocument()));
 
-type Json = Record<string, unknown>;
-interface RpcMessage { readonly jsonrpc: '2.0'; readonly id?: number; readonly method?: string; readonly result?: Json; readonly error?: Json }
-
-class StdioClient {
-  private readonly proc: ChildProcessWithoutNullStreams;
-  private buffer = '';
-  private nextId = 1;
-  private readonly waiting = new Map<number, (m: RpcMessage) => void>();
-  /** Every stdout line must be a JSON-RPC message; anything else would corrupt the stream for a real client. */
-  readonly noise: string[] = [];
-  stderr = '';
-
-  constructor() {
-    this.proc = spawn(process.execPath, [BIN, '--root', root], { stdio: ['pipe', 'pipe', 'pipe'] });
-    this.proc.stderr.on('data', (d: Buffer) => { this.stderr += d.toString(); });
-    this.proc.stdout.on('data', (d: Buffer) => {
-      this.buffer += d.toString();
-      let nl: number;
-      while ((nl = this.buffer.indexOf('\n')) >= 0) {
-        const line = this.buffer.slice(0, nl).trim();
-        this.buffer = this.buffer.slice(nl + 1);
-        if (line === '') continue;
-        let m: RpcMessage;
-        try {
-          m = JSON.parse(line) as RpcMessage;
-        } catch {
-          this.noise.push(line);
-          continue;
-        }
-        if (m.jsonrpc !== '2.0') this.noise.push(line);
-        if (typeof m.id === 'number') this.waiting.get(m.id)?.(m);
-      }
-    });
-  }
-
-  request(method: string, params: Json = {}): Promise<RpcMessage> {
-    const id = this.nextId++;
-    return new Promise((resolve) => {
-      this.waiting.set(id, resolve);
-      this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
-    });
-  }
-
-  notify(method: string, params: Json = {}): void {
-    this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
-  }
-
-  close(): void {
-    this.proc.stdin.end();
-    this.proc.kill();
-  }
-}
-
-const TOOLS = ['suture_inspect_lineage', 'suture_list_workbooks', 'suture_run_audit', 'suture_verify_patch'];
-const freshSeed = (): number => crypto.getRandomValues(new Int32Array(1))[0] ?? 1;
-
-async function call(c: StdioClient, name: string, args: Json, meta?: Json): Promise<{ readonly structured: Json; readonly isError: boolean; readonly text: string; readonly result: Json }> {
-  const r = await c.request('tools/call', { name, arguments: args, ...(meta === undefined ? {} : { _meta: meta }) });
-  if (r.error !== undefined) throw new Error(`${name}: JSON-RPC error ${JSON.stringify(r.error)}`);
-  const result = r.result ?? {};
-  const content = (result['content'] as Array<{ type: string; text: string }> | undefined) ?? [];
-  return { structured: (result['structuredContent'] as Json | undefined) ?? {}, isError: result['isError'] === true, text: content.map((x) => x.text).join('\n'), result };
-}
-
 describe('2025-11-25: initialize handshake, tools/list, run_audit → verify_patch on Flagship 1', () => {
-  const c = new StdioClient();
+  const c = new Client(process.execPath, [BIN, '--root', root]);
   afterAll(() => c.close());
 
   beforeAll(async () => {
@@ -145,7 +81,7 @@ describe('2025-11-25: initialize handshake, tools/list, run_audit → verify_pat
 });
 
 describe('2026-07-28: stateless server/discover and per-request _meta', () => {
-  const c = new StdioClient();
+  const c = new Client(process.execPath, [BIN, '--root', root]);
   afterAll(() => c.close());
   const meta = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {}, 'io.modelcontextprotocol/clientInfo': { name: 'suture-test', version: '1' } };
 
