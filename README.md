@@ -1,5 +1,7 @@
 # Suture
 
+[![CI](https://github.com/g4stein/SUTURE/actions/workflows/ci.yml/badge.svg)](https://github.com/g4stein/SUTURE/actions/workflows/ci.yml)
+
 Suture is a zero-backend spreadsheet engine that runs entirely on your machine: in the browser, or headless as the `suture` CLI and a local MCP server for Kiro. One dependency graph connects three engines:
 
 - `=SQL("…")` cells run in **DuckDB-WASM**;
@@ -60,6 +62,38 @@ A typical loop on Flagship 1:
 
 Only the two static tools are auto-approved. The audit tools evaluate the workbook, and with `trustPython: true` its Python, so Kiro asks first. Workbook paths must stay inside the workspace.
 
+### From npm: `@g4stein/suture-mcp`
+
+The server is also packaged for npm, so any workspace can use it without cloning this repository. Use this `.kiro/settings/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "suture": {
+      "command": "npx",
+      "args": ["-y", "@g4stein/suture-mcp@0.1.0"],
+      "autoApprove": ["suture_list_workbooks", "suture_inspect_lineage"]
+    }
+  }
+}
+```
+
+The package is MIT-licensed and needs Node.js 22. It bundles `@suture/core` and `@suture/runtime` into one executable file and depends only on `@duckdb/duckdb-wasm`, `pyodide`, `@modelcontextprotocol/server`, and `zod`. The license and notice texts of the code it bundles are in `dist/THIRD_PARTY_LICENSES.md`.
+
+`pnpm --filter @g4stein/suture-mcp test:pack` packs the package, installs the tarball with npm in a temporary project outside the repository, checks its contents, its licenses, and that nothing links back into the monorepo, and runs `suture_run_audit` through the installed bin. CI runs it on every pull request.
+
+Publishing (maintainers, with an npm login that owns the `@g4stein` scope):
+
+```bash
+pnpm install
+pnpm --filter @g4stein/suture-mcp build
+cd packages/mcp
+pnpm pack                                              # writes g4stein-suture-mcp-0.1.0.tgz; rewrites workspace: specifiers
+npm publish ./g4stein-suture-mcp-0.1.0.tgz --access public
+```
+
+Publish the packed tarball, not the folder: a plain `npm publish` in `packages/mcp` would keep the `workspace:*` devDependency specifiers in the published manifest.
+
 ## Flagship workbooks
 
 Each flagship ships with a realistic modeling flaw that its base case hides. The Exorcist finds the flaw from a fresh random seed. Nothing is scripted.
@@ -114,6 +148,7 @@ pnpm test             # unit, integration, and property tests: core, runtime (re
                       # and the compiled CLI and MCP server end to end
 pnpm build            # production builds: packages/web/dist, packages/cli/dist, packages/mcp/dist
 pnpm typecheck        # strict TypeScript across the workspace
+pnpm --filter @g4stein/suture-mcp test:pack   # npm-install the packed MCP tarball outside the repo and run it
 pnpm run licenses     # dependency license audit
 ```
 

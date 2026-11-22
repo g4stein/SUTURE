@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
+import { thirdPartyNotices } from './build/notices.ts';
 
 /**
  * One Node ESM file (Spec 05 §2.3). Core and runtime are bundled; the MCP SDK, zod, DuckDB-WASM, and Pyodide stay
  * external dependencies of this package (the engines load their .wasm files from their own package directories).
  */
 export default defineConfig({
+  plugins: [thirdPartyNotices({ bin: 'suture-mcp.mjs' })],
   build: {
     ssr: 'src/main.ts',
     outDir: 'dist',

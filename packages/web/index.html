@@ -1,14 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="background:#090B10">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Suture: a zero-backend spreadsheet engine with DuckDB SQL, NumPy, spreadsheet-compatible formulas, and a property-based Exorcist that finds the bugs base cases hide." />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#090B10" />
     <title>Suture — X-Ray Studio</title>
+    <!--
+      Loading shell (Spec 04 Req 11.6). Painted from the HTML alone, before the stylesheet or any script arrives, so no
+      white or empty frame shows on a slow connection. React replaces #root's contents on its first render. The values
+      mirror the steering tokens (obsidian #090B10, slate line #263142, ink #D6DEEA, ink-muted #7C8AA0, engine-formula
+      #10B981); Tailwind tokens are not available before the stylesheet loads.
+    -->
+    <style>
+      html, body { margin: 0; background: #090B10; }
+      #suture-shell { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+        background: #090B10; color: #7C8AA0; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      #suture-shell .wordmark { color: #D6DEEA; font-size: 15px; font-weight: 600; letter-spacing: 0.42em; padding-left: 0.42em; }
+      #suture-shell .status { display: flex; align-items: center; gap: 8px; border: 1px solid #263142; border-radius: 6px; padding: 4px 10px; }
+      #suture-shell .dot { width: 6px; height: 6px; border-radius: 50%; background: #10B981; animation: suture-shell-pulse 1.2s ease-in-out infinite; }
+      @keyframes suture-shell-pulse { 50% { opacity: 0.25; } }
+      @media (prefers-reduced-motion: reduce) { #suture-shell .dot { animation: none; } }
+    </style>
   </head>
   <body class="bg-obsidian text-ink">
-    <div id="root"></div>
+    <div id="root">
+      <div id="suture-shell" data-testid="loading-shell" role="status" aria-live="polite">
+        <div class="wordmark">SUTURE</div>
+        <div class="status"><span class="dot" aria-hidden="true"></span>Initializing local engines…</div>
+      </div>
+    </div>
+    <noscript><p style="color:#D6DEEA;font-family:ui-monospace,monospace;text-align:center;margin-top:40vh">Suture runs entirely in your browser and needs JavaScript.</p></noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

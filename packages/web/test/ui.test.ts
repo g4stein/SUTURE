@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_EXORCIST, makeError, NEVER_CANCELLED, tableRefFromTable, toCellKey, type EngineOutcome, type PyEngine } from '@suture/core';
 import { tableFromArrays } from 'apache-arrow';
-import { engineLabel, formatNumber, formatValue, pillAccessibleName, pillText } from '../src/app/format.ts';
+import { engineLabel, formatGridNumber, formatNumber, formatValue, pillAccessibleName, pillText } from '../src/app/format.ts';
 import { cellDisplay } from '../src/grid/cellDisplay.ts';
 import { checkImport, importKind, MAX_IMPORT_BYTES } from '../src/import/routeFile.ts';
 import { previewTable } from '../src/inspector/preview.ts';
@@ -44,6 +44,10 @@ describe('cell display (Spec 04 Req 1.4)', () => {
     expect(e.title).toContain('origin Model!B5');
     expect(cellDisplay('pending', 'py')).toMatchObject({ kind: 'pending', chip: 'py' });
     expect(cellDisplay(42, 'literal')).toMatchObject({ kind: 'number', chip: null });
+    // Grid text is the terminal format; the tooltip keeps 12 significant digits and data-raw the exact value.
+    expect(cellDisplay(21.761994633935, 'formula')).toMatchObject({ kind: 'number', text: '21.76', title: '21.7619946339', raw: '21.761994633935' });
+    expect(cellDisplay(6_000_000, 'literal')).toMatchObject({ text: '6,000,000', raw: '6000000' });
+    expect(cellDisplay('6000000', 'literal')).toMatchObject({ kind: 'text', text: '6000000', raw: null });
   });
 });
 
@@ -98,5 +102,33 @@ describe('table preview (Spec 04 Req 3.3)', () => {
     expect(p.decoded).toBe(100);
     expect(p.total).toBe(n);
     expect(p.rows[99]).toEqual(['99', '49.5']);
+  });
+});
+
+describe('formatGridNumber (Spec 04 Req 1.4, grid cells only)', () => {
+  it('groups thousands and keeps at most 2 decimals when |n| ≥ 1', () => {
+    expect(formatGridNumber(6_000_000)).toBe('6,000,000');
+    expect(formatGridNumber(450_000)).toBe('450,000');
+    expect(formatGridNumber(275_710.021114032)).toBe('275,710.02');
+    expect(formatGridNumber(21.761994633935)).toBe('21.76');
+    expect(formatGridNumber(5.2)).toBe('5.2');
+    expect(formatGridNumber(-132.65745826466335)).toBe('-132.66');
+    expect(formatGridNumber(1)).toBe('1');
+    expect(formatGridNumber(999_999.999)).toBe('1,000,000');
+  });
+
+  it('keeps 4 significant digits when |n| < 1', () => {
+    expect(formatGridNumber(0.025)).toBe('0.025');
+    expect(formatGridNumber(-0.07605123)).toBe('-0.07605');
+    expect(formatGridNumber(0.32348752084)).toBe('0.3235');
+    expect(formatGridNumber(0.000123456)).toBe('0.0001235');
+  });
+
+  it('uses the shared exponent form outside [1e-6, 1e15), and 0 for both zeros', () => {
+    expect(formatGridNumber(1e15)).toBe(formatNumber(1e15));
+    expect(formatGridNumber(1e-7)).toBe('1e-7');
+    expect(formatGridNumber(-2.5e-9)).toBe(formatNumber(-2.5e-9));
+    expect(formatGridNumber(0)).toBe('0');
+    expect(formatGridNumber(-0)).toBe('0');
   });
 });

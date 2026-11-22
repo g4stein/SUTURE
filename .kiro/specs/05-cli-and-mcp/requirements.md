@@ -54,6 +54,7 @@ It uses these types unchanged:
 7. THE SYSTEM SHALL write only JSON-RPC messages to stdout.
 8. THE SYSTEM SHALL ship `.kiro/settings/mcp.json`, which launches the server from the workspace root and auto-approves only the two tools that run no workbook code (`suture_list_workbooks`, `suture_inspect_lineage`).
 9. THE SYSTEM SHALL add no dependency that fails `pnpm run licenses`.
+10. THE SYSTEM SHALL make `packages/mcp` publishable as `@g4stein/suture-mcp`: MIT, public, an executable `suture-mcp` bin, only `dist`, `README.md`, and `LICENSE` in the package, no `workspace:` specifier and only real npm packages as runtime dependencies, and a `dist/THIRD_PARTY_LICENSES.md` with the license and notice texts of every package bundled into the bin.
 
 ### Requirement 4: Python trust in Node hosts
 

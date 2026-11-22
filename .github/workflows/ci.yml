@@ -43,6 +43,10 @@ jobs:
       - name: Production build
         run: pnpm build
 
+      # Spec 05 task 3.5: pack @g4stein/suture-mcp, npm-install the tarball outside the repo, and run the installed bin.
+      - name: MCP package tarball smoke test
+        run: pnpm --filter @g4stein/suture-mcp test:pack
+
       - name: Install Playwright Chromium
         run: pnpm --filter @suture/web exec playwright install --with-deps chromium
 

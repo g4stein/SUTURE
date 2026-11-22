@@ -77,6 +77,7 @@ Cross-Origin-Embedder-Policy: credentialless
 - **Approved MCP libraries (`packages/mcp` only):** `@modelcontextprotocol/server` and `@modelcontextprotocol/core` (Apache-2.0), and `zod` (MIT). Together they add 3 packages (Spec 05 §5.1).
 - **Pyodide packages:** NumPy only. `pyodide.loadPackage` is called with `numpy` and nothing else. SciPy, pandas, and pyarrow are forbidden.
 - Adding a runtime dependency outside this list requires an explicit license check recorded in the PR description.
+- A published artifact that bundles third-party code (today `@g4stein/suture-mcp`'s `dist/suture-mcp.mjs`) ships those packages' LICENSE and NOTICE texts. The MCP build generates `dist/THIRD_PARTY_LICENSES.md` from the bundled module list and fails when a bundled package has no license file.
 
 ## 6. Kiro configuration is tracked
 

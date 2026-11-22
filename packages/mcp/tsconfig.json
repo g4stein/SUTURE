@@ -7,5 +7,5 @@
       "duckdb-wasm-blocking": ["./node_modules/@duckdb/duckdb-wasm/dist/duckdb-browser-blocking.d.ts"]
     }
   },
-  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "test", "build", "vite.config.ts", "vitest.config.ts", "vitest.pack.config.ts"]
 }
