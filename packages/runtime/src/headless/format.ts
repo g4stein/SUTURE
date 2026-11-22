@@ -39,9 +39,13 @@ export function formatSummary(s: ValueSummary): string {
   }
 }
 
-const LABELS: Readonly<Record<CellAssertion['kind'], string>> = { finite: 'finite', notError: 'not error', notNull: 'not null', gte: '≥', lte: '≤', gt: '>', lt: '<', between: 'between', monotonicWith: 'monotonic with' };
+/**
+ * ASCII operators: the Unicode `≥` / `≤` signs are missing from some monospace fonts and rendered as blank space next to
+ * the operand, so every host prints `>=` / `<=` (identical in the browser, the CLI, and MCP output).
+ */
+const LABELS: Readonly<Record<CellAssertion['kind'], string>> = { finite: 'finite', notError: 'not error', notNull: 'not null', gte: '>=', lte: '<=', gt: '>', lt: '<', between: 'between', monotonicWith: 'monotonic with' };
 
-/** The rule an assertion states, as the Audit Studio and the CLI print it: `≥ 0`, `between 0 and Model!B2`. */
+/** The rule an assertion states, as the Audit Studio and the CLI print it: `>= 0`, `between 0 and Model!B2`. */
 export function assertionLabel(a: CellAssertion): string {
   const op = (o: { readonly kind: 'const'; readonly value: number } | { readonly kind: 'cell'; readonly cell: CellKey }): string => (o.kind === 'const' ? String(o.value) : o.cell);
   switch (a.kind) {

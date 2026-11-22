@@ -17,7 +17,7 @@ for (const c of CASES) {
     const errors = watchConsole(page);
     await openApp(page);
     await page.getByTestId('workbook-picker').selectOption(c.id);
-    await expect(page.getByTestId('workbook-title')).toHaveText(c.title);
+    await expect(page).toHaveTitle(`${c.title} — Suture X-Ray Studio`);
     await page.getByTestId(`sheet-tab-${c.sheet}`).click();
     for (const k of c.base) await expect(value(page, k)).toHaveAttribute('data-raw', /^-?\d[\d.e+-]*$/, { timeout: 240_000 });
     await page.getByTestId('panel-tab-assertions').click();
@@ -46,7 +46,7 @@ for (const c of CASES) {
     const fresh = await page.context().newPage();
     const freshErrors = watchConsole(fresh);
     await fresh.goto(`/${href}`);
-    await expect(fresh.getByTestId('workbook-title')).toHaveText(c.title);
+    await expect(fresh).toHaveTitle(`${c.title} — Suture X-Ray Studio`);
     await expect(fresh.getByTestId('exorcist-status')).toHaveText('replay: reproduced (exact)', { timeout: 300_000 });
     expect(errors, errors.join('\n')).toEqual([]);
     expect(freshErrors, freshErrors.join('\n')).toEqual([]);
