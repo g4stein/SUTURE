@@ -15,7 +15,7 @@ export interface ViolationReport {
   /** The assertion id (Tier 2) or the invariant id (Tier 1). */
   readonly id: string;
   readonly cell: CellKey | null;
-  /** The expected rule: `≥ 0`, or the invariant's description. */
+  /** The expected rule: `>= 0`, or the invariant's description. */
   readonly rule: string;
   readonly detail: string;
   readonly observed: JsonValue | null;

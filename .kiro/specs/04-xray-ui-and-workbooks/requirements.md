@@ -97,6 +97,7 @@ It uses these types unchanged:
 3. WHEN the page loads with a `#replay=v1.` fragment, THE SYSTEM SHALL decode it, open the built-in flagship whose hash matches `workbookHash`, or ask the user to open the matching `.suture.json`, and then run the replay.
 4. WHEN a replay finishes, THE SYSTEM SHALL show whether it was exact or direct, and highlight the lineage in X-Ray.
 5. IF the document changes during a session, THEN THE SYSTEM SHALL label the session's verdict as stale.
+6. THE SYSTEM SHALL ship the Suture Crew sample workbook (`g4stein/suture-crew` `samples/wholesale-quote.suture.json`) as a built-in with an identical workbook hash, so that WHEN a replay link produced by the Crew app is opened, THE SYSTEM SHALL open it on that built-in and replay it with no import prompt.
 
 ### Requirement 8: Flagship workbook 1, SaaS Cash Runway & Unit Economics
 
@@ -144,3 +145,5 @@ It uses these types unchanged:
 4. WHILE the viewport is narrower than 768 px, THE SYSTEM SHALL lay out without horizontal page overflow, keep Exorcise Model reachable, and show a banner that desktop is optimal.
 5. THE SYSTEM SHALL serve hashed static assets as immutable for one year and SHALL NOT install a service worker, so COOP/COEP headers and deploys are never affected by a cached app shell.
 6. THE SYSTEM SHALL paint an obsidian loading shell (the SUTURE wordmark and "Initializing local engines…", announced as a status) from the HTML alone, before any stylesheet or script loads, and SHALL replace it with the app on first render.
+7. WHILE the viewport is at least 1280 px wide, THE SYSTEM SHALL keep the command bar on one row, and SHALL show the open workbook's full title in the browser tab and as the picker's tooltip rather than repeating it in the command bar.
+8. THE SYSTEM SHALL complete the first-visit path (landing KPI evaluated through DuckDB, Pyodide, and formulas; Exorcise Model; Apply Counterexample; X-Ray fracture) in Chromium, WebKit, and Firefox, with WebKit in the degraded mode because it does not support COEP `credentialless`.

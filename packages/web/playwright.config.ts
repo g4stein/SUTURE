@@ -18,7 +18,12 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   use: { baseURL: APP, trace: 'retain-on-failure' },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /browsers\.spec\.ts$/ },
+    // Cross-browser smoke of the judge path (e2e/browsers.spec.ts); the full suite runs on Chromium.
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /browsers\.spec\.ts$/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testMatch: /browsers\.spec\.ts$/ },
+  ],
   webServer: [
     { command: `pnpm exec vite preview --port ${port(APP)} --strictPort`, url: APP, reuseExistingServer: false, timeout: 120_000 },
     { command: `pnpm exec vite preview --config vite.e2e.config.ts --port ${port(HARNESS_ORIGIN)} --strictPort`, url: HARNESS_ORIGIN, reuseExistingServer: false, timeout: 120_000 },

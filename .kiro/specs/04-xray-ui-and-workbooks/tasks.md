@@ -129,3 +129,14 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
     - _Requirements: 1.4_
     - Evidence: 0adc4e2 — `test/ui.test.ts`, `grid/cellDisplay.ts`, `grid/CellView.tsx`.
 
+
+- [x] 13. Final judge polish (code-freeze PR)
+  - [x] 13.1 Ship the Suture Crew sample as a built-in so Crew replay links open with no import.
+    - Verify: `runtime/test/wholesaleQuote.test.ts` pins the built-in's canonical hash to the Crew fixture's `workbookHash`; the E2E "Req 7.6" opens the real Crew fixture link and sees `replay: reproduced (exact)`, no replay prompt, X-Ray on, the violated cell's sheet, and the fractured `Pricing` portal.
+    - _Requirements: 7.6_
+  - [x] 13.2 Keep the command bar on one row from 1280 px, move the full title to the tab and the picker's tooltip, and print assertion operators in ASCII (`>=`, `<=`), which every monospace font has.
+    - Verify: the flagship E2E tests check the tab title; the shared `assertionLabel` prints `>= 0`.
+    - _Requirements: 11.7_
+  - [x] 13.3 Run the judge path in WebKit and Firefox.
+    - Verify: `e2e/browsers.spec.ts` runs in the `webkit` and `firefox` Playwright projects in CI: the landing KPI evaluates, Exorcise Model finds `runway-non-negative`, Apply trips it, and the X-Ray fracture draws, with the readiness pill `degraded` where the browser is not cross-origin isolated.
+    - _Requirements: 11.8_

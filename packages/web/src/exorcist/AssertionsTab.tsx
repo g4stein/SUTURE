@@ -3,7 +3,7 @@ import { parseCellKey, toCellKey, type AssertionOperand, type CellAssertion, typ
 import type { AppSnapshot, AppStore, AssertionStatus } from '../app/store.ts';
 
 export const ASSERTION_KINDS: ReadonlyArray<{ readonly kind: CellAssertion['kind']; readonly label: string }> = [
-  { kind: 'gte', label: '≥ (gte)' }, { kind: 'lte', label: '≤ (lte)' }, { kind: 'gt', label: '> (gt)' }, { kind: 'lt', label: '< (lt)' },
+  { kind: 'gte', label: '>= (gte)' }, { kind: 'lte', label: '<= (lte)' }, { kind: 'gt', label: '> (gt)' }, { kind: 'lt', label: '< (lt)' },
   { kind: 'between', label: 'between' }, { kind: 'notError', label: 'not error' }, { kind: 'finite', label: 'finite' }, { kind: 'notNull', label: 'not null' },
   { kind: 'monotonicWith', label: 'monotonic with' },
 ];

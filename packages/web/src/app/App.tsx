@@ -23,6 +23,11 @@ function isTextTarget(t: EventTarget | null): boolean {
 export function App({ store }: { readonly store: AppStore }): ReactNode {
   const snap = useSnapshot(store);
 
+  // The open workbook's full title lives in the browser tab (and the picker's tooltip), not in the command bar.
+  useEffect(() => {
+    document.title = snap.title === '' ? 'Suture — X-Ray Studio' : `${snap.title} — Suture X-Ray Studio`;
+  }, [snap.title]);
+
   // X-Ray hotkey: Alt+X (Option+X) anywhere; bare X only when focus is outside the grid and outside text inputs.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

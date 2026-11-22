@@ -5,7 +5,10 @@ import { ReadinessPill } from './ReadinessPill.tsx';
 
 export const IMPORT_ACCEPT = '.csv,.parquet,.xlsx,.suture.json,.json';
 
-/** Spec 04 §1 — command bar: brand, workbook switcher, Import File, X-Ray toggle, Exorcise Model, readiness pill. */
+/**
+ * Spec 04 §1 — command bar: brand, workbook switcher, Import File, X-Ray toggle, Exorcise Model, readiness pill. One row
+ * from 1280 px up (Req 11.7); the open workbook's full title is the picker's tooltip and the browser tab title.
+ */
 export function TopBar({ snap, store }: { readonly snap: AppSnapshot; readonly store: AppStore }): ReactNode {
   const file = useRef<HTMLInputElement>(null);
   const running = snap.exorcist.kind === 'running' || snap.exorcist.kind === 'replaying';
@@ -17,7 +20,7 @@ export function TopBar({ snap, store }: { readonly snap: AppSnapshot; readonly s
       <label className="flex min-w-0 items-center gap-2">
         <span className="sr-only">Workbook</span>
         <select
-          data-testid="workbook-picker" aria-label="Workbook" value={snap.workbook === 'imported' ? 'imported' : snap.workbook}
+          data-testid="workbook-picker" aria-label="Workbook" title={snap.title} value={snap.workbook === 'imported' ? 'imported' : snap.workbook}
           onChange={(e) => { if (e.target.value !== 'imported') void store.switchWorkbook(e.target.value as WorkbookId); }}
           className="max-w-[16rem] truncate rounded-md border border-slate-line bg-obsidian px-2 py-1 font-mono text-xs text-ink hover:border-ink-muted focus:border-engine-formula focus:outline-none"
         >
@@ -25,8 +28,7 @@ export function TopBar({ snap, store }: { readonly snap: AppSnapshot; readonly s
           {snap.workbook === 'imported' && <option value="imported">{snap.title} (imported)</option>}
         </select>
       </label>
-      <span data-testid="workbook-title" className="hidden min-w-0 truncate font-mono text-xs text-ink-muted lg:inline">{snap.title}</span>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2 xl:flex-nowrap">
         <button
           type="button" data-testid="import-button" onClick={() => file.current?.click()}
           className="rounded-md border border-slate-line px-2.5 py-1 font-mono text-xs text-ink hover:border-engine-sql hover:text-engine-sql"

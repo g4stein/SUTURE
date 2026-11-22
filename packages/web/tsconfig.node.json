@@ -10,7 +10,9 @@
     ]
   },
   "include": [
+    "capture",
     "e2e",
+    "playwright.capture.config.ts",
     "playwright.config.ts",
     "tailwind.config.ts",
     "vite.config.ts",

@@ -10,14 +10,14 @@ import {
   type EngineName, type EngineStatus, type IsolationInfo,
 } from '@suture/runtime/bridge';
 import { assertionLabel } from '@suture/runtime/headless';
-import { blankDocument, ecommerceMarginDocument, saasRunwayDocument, validateDocument } from '@suture/runtime/workbooks';
+import { blankDocument, ecommerceMarginDocument, saasRunwayDocument, validateDocument, wholesaleQuoteDocument } from '@suture/runtime/workbooks';
 import { EngineHost, type Telemetry } from '../workers/engineHost.ts';
 import { isExorcistEvent, type ExorcistCommand } from '../workers/exorcistProtocol.ts';
 import { randomSeed, webClock, webCompressor, webHasher, yieldControl } from '../engines/hostAdapters.ts';
 import { checkImport } from '../import/routeFile.ts';
 import { formatValue } from './format.ts';
 
-export type WorkbookId = 'saas' | 'ecommerce' | 'blank';
+export type WorkbookId = 'saas' | 'ecommerce' | 'wholesale' | 'blank';
 export type WorkbookChoice = WorkbookId | 'imported';
 
 /**
@@ -27,6 +27,8 @@ export type WorkbookChoice = WorkbookId | 'imported';
 export const WORKBOOKS: ReadonlyArray<{ readonly id: WorkbookId; readonly label: string; readonly make: () => SutureDocument; readonly landing: CellKey | null }> = [
   { id: 'saas', label: 'SaaS Cash Runway', make: saasRunwayDocument, landing: toCellKey({ sheet: 'Model', row: 4, col: 1 }) },
   { id: 'ecommerce', label: '100k-Row E-Commerce Margin Audit', make: ecommerceMarginDocument, landing: toCellKey({ sheet: 'Margins', row: 4, col: 1 }) },
+  // The Suture Crew sample, so replay links from the Crew app open with no import (Spec 04 Req 7.6).
+  { id: 'wholesale', label: 'Wholesale Quote (Crew sample)', make: wholesaleQuoteDocument, landing: toCellKey({ sheet: 'Quote', row: 3, col: 1 }) },
   { id: 'blank', label: 'Blank Workbook', make: blankDocument, landing: null },
 ];
 

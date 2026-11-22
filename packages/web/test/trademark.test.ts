@@ -25,7 +25,7 @@ describe('trademark hygiene (Spec 04 §9, Req 11.2)', () => {
   });
 
   it('every tracked text file under packages/, .kiro/, and the README is clean', () => {
-    const files = execFileSync('git', ['ls-files', '--', 'packages', '.kiro', 'README.md', 'vercel.json', '.github'], { cwd: ROOT, encoding: 'utf8' })
+    const files = execFileSync('git', ['ls-files', '--', 'packages', '.kiro', 'README.md', 'KIRO.md', 'vercel.json', '.github'], { cwd: ROOT, encoding: 'utf8' })
       .split('\n').filter((f) => TEXT.test(f) && !f.endsWith('banned-term-digests.json'));
     expect(files.length).toBeGreaterThan(100);
     const digests = loadDigests();

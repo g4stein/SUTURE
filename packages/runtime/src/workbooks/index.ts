@@ -8,3 +8,4 @@ export * from './ecommerceMargin.ts';
 export * from './blank.ts';
 export * from './validateDocument.ts';
 export * from './registry.ts';
+export * from './wholesaleQuote.ts';

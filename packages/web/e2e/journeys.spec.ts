@@ -5,6 +5,7 @@ import type { Workbook } from 'exceljs';
 import { watchConsole } from './console.ts';
 import { csvFixture, expectLanding, openApp, rawNumber, scanDomForTrademarks, selectCell, setCell, telemetry, trackLongTasks, value, withinFrameBudget } from './app.ts';
 import { HARNESS_NO_ISOLATION_ORIGIN } from './urls.ts';
+import { CREW_REPLAY_FRAGMENT, CREW_VIOLATED_ASSERTION } from './fixtures/crewReplay.ts';
 
 /**
  * Phase 4 journeys (Spec 04 §8, Req 1–7, 11). Real engines, real files, production build behind COOP same-origin +
@@ -43,7 +44,7 @@ test('Journey 1 — Flagship 1: Exorcise Model → counterexample → Apply → 
   const errors = watchConsole(page);
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await openApp(page);
-  await expect(page.getByTestId('workbook-title')).toHaveText('SaaS Cash Runway & Unit Economics');
+  await expect(page).toHaveTitle('SaaS Cash Runway & Unit Economics — Suture X-Ray Studio');
   await expectLanding(page, 'Model!B5');
   await expect(page.getByTestId('inspector-source')).toHaveText('=Inputs!B2/B4');
   await page.getByTestId('sheet-tab-Model').click();
@@ -127,7 +128,7 @@ test('Journey 2 — Flagship 2: 100k rows aggregate → sheets + Orders drawer �
   const errors = watchConsole(page);
   await openApp(page);
   await page.getByTestId('workbook-picker').selectOption('ecommerce');
-  await expect(page.getByTestId('workbook-title')).toHaveText('100,000-Row E-Commerce Margin Audit');
+  await expect(page).toHaveTitle('100,000-Row E-Commerce Margin Audit — Suture X-Ray Studio');
   await expectLanding(page, 'Margins!B5');
   await page.getByTestId('sheet-tab-Margins').click();
   const margin = await waitNumber(page, 'Margins!B5');
@@ -497,5 +498,27 @@ test('Req 4.1 — unisolated app page: Lazy → Degraded (restart on timeout) fo
   await expect(page.getByTestId('tm-degraded-note')).toContainText('not cross-origin isolated');
   await expect(page.getByTestId('telemetry-popover')).toContainText('DuckDB: timeouts restart the engine (page is not cross-origin isolated)');
   await page.keyboard.press('Escape');
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+/**
+ * Spec 04 Req 7.6: a Suture X-Ray link produced by the Suture Crew app (real fixture, not generated here) opens straight
+ * onto the built-in Crew sample and reproduces exactly, with no import prompt, the crimson fracture on, and the
+ * violated cell selected on its sheet.
+ */
+test('Req 7.6 — a Suture Crew X-Ray link opens on the built-in sample and reproduces exactly, no import', async ({ page }) => {
+  const errors = watchConsole(page);
+  await openApp(page, `/#${CREW_REPLAY_FRAGMENT}`);
+  await expect(page.getByTestId('exorcist-status')).toHaveText('replay: reproduced (exact)', { timeout: 300_000 });
+  await expect(page).toHaveTitle('Wholesale Quote Margin (Suture Crew sample) — Suture X-Ray Studio');
+  await expect(page.getByTestId('workbook-picker')).toHaveValue('wholesale');
+  await expect(page.getByTestId('replay-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('violated-assertion')).toContainText(CREW_VIOLATED_ASSERTION);
+  await expect(page.getByTestId('xray-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('lineage')).toHaveAttribute('data-failing', 'true');
+  await expect(page.getByTestId('grid')).toHaveAttribute('data-sheet', 'Quote');
+  // The failing edge crosses sheets (Pricing!A1 SQL -> Quote!B2), so the fracture shows as a crimson portal badge.
+  await expect(page.getByTestId('portal-Pricing-in')).toHaveAttribute('data-fractured', 'true');
+  await page.screenshot({ path: test.info().outputPath('crew-link.png') });
   expect(errors, errors.join('\n')).toEqual([]);
 });

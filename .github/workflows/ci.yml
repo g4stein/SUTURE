@@ -47,8 +47,8 @@ jobs:
       - name: MCP package tarball smoke test
         run: pnpm --filter @g4stein/suture-mcp test:pack
 
-      - name: Install Playwright Chromium
-        run: pnpm --filter @suture/web exec playwright install --with-deps chromium
+      - name: Install Playwright browsers (Chromium, WebKit, Firefox)
+        run: pnpm --filter @suture/web exec playwright install --with-deps chromium webkit firefox
 
       - name: End-to-end tests
         run: pnpm --filter @suture/web test:e2e

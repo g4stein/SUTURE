@@ -10,11 +10,28 @@ Suture is a zero-backend spreadsheet engine that runs entirely on your machine: 
 
 The **Exorcist** is a property-based fuzzer built on [fast-check](https://fast-check.dev). It perturbs a workbook's declared inputs across all three engines, shrinks any failure to a minimal counterexample, and produces a replay link that reproduces it exactly.
 
-**Live demo:** https://suture-nu.vercel.app
+**Live demo:** https://suture-nu.vercel.app · **Kiro write-up:** [KIRO.md](KIRO.md) · **Kiro Crew app:** [g4stein/suture-crew](https://github.com/g4stein/suture-crew) · **npm:** [`@g4stein/suture-mcp`](https://www.npmjs.com/package/@g4stein/suture-mcp)
+
+![Suture X-Ray Studio: the Exorcist found a counterexample, Apply Counterexample turned the runway negative, and the crimson fracture runs from the shrunk inputs through DuckDB SQL and NumPy to the broken formula](docs/hero.png)
+
+## Judge in 60 seconds
+
+1. Open **https://suture-nu.vercel.app**. Use a recent Chrome, Edge, or Firefox for the full engine; Safari works in an honest degraded mode, because it lacks COEP `credentialless`. You land on `Model!B5`, the runway KPI. The inspector shows its formula, precedents, and assertions. `Model!B4` above it is Python/NumPy (`PY`), fed by DuckDB SQL on the `Cohorts` sheet (`SQL`).
+2. Press **Exorcise Model**. In about 3 seconds the fuzzer finds `runway-non-negative` violated and shrinks the failing inputs.
+3. Press **Apply Counterexample**. Runway goes negative, the status says *RAISE NOW*, and X-Ray draws the crimson fracture from the shrunk inputs through SQL → PY → FX.
+4. Press **Copy Replay Link** and open it in a new tab. It reproduces the same failure exactly.
+5. Switch the picker to **100k-Row E-Commerce Margin Audit**. 100,000 orders run in DuckDB-WASM, then NumPy, then formulas, across five sheets. Exorcise it too.
+6. In Kiro, add `{"mcpServers":{"suture":{"command":"npx","args":["-y","@g4stein/suture-mcp@0.1.0"]}}}` to `.kiro/settings/mcp.json`. Ask Kiro to audit `flagship:1` and then verify the fix `=IF(B4<=0,120,Inputs!B2/B4)` for `Model!B5`.
+7. For always-on audits, install the Kiro Crew app (Kiro Crew 0.13.0 or later):
+   ```bash
+   kirocrew app install https://github.com/g4stein/suture-crew.git --ref main
+   kirocrew app enable suture-crew
+   ```
+   Its **Open in Suture X-Ray** links open on the built-in *Wholesale Quote (Crew sample)* workbook and replay with no import.
 
 No data leaves your machine. There is no application server, no remote execution, and no telemetry endpoint.
 
-> **Status:** Phase 5 has landed: the headless toolchain. The `suture` CLI and the `suture-mcp` server run the same real-engine code as the web app, and Kiro can audit and patch models through MCP. The scheduler now slices its whole recalculation, so editing the input of 20,000 formulas keeps every main-thread task under 50 ms, and the Playwright suite runs 16 tests with none skipped. Open items are tracked in `.kiro/specs/*/tasks.md`.
+> **Status:** code freeze for Kiroween 2026. The web app, the `suture` CLI, the published `@g4stein/suture-mcp` server, and the [Suture Crew](https://github.com/g4stein/suture-crew) app all run the same real-engine code. CI runs the full Playwright suite on Chromium, the judge path on WebKit and Firefox, and a packed-tarball smoke test of the npm package. Open items are tracked in `.kiro/specs/*/tasks.md`.
 
 ## Using Suture
 
@@ -102,6 +119,7 @@ Each flagship ships with a realistic modeling flaw that its base case hides. The
 |---|---|---|
 | **SaaS Cash Runway & Unit Economics** | DuckDB cohort SQL → NumPy least-squares burn projection (`Model!B4`) → `Model!B5 = cash / B4` | Runway divides by projected net burn with no guard. A company that turns profitable gets a negative runway and is told to "RAISE NOW". |
 | **100,000-Row E-Commerce Margin Audit** | DuckDB synthesizes 100,000 orders and aggregates them once into 96 tiers. Per scenario, it runs stress SQL over the tiers, then a NumPy pivot and weighted OLS, then `SUMIFS` / `AVERAGEIF` / `VLOOKUP` KPIs. | The discount cap is applied to each discount separately instead of to the stacked total, so the Hardlines stacked cohort goes below zero net margin. |
+| **Wholesale Quote (Crew sample)** | DuckDB prices the quote from three discount inputs → formula margin and status | The SQL adds the discounts instead of compounding them, so a stacked quote prices at 0 and the margin divides by it. This is the [Suture Crew](https://github.com/g4stein/suture-crew) app's bundled sample, built in so its X-Ray links open directly. |
 
 Fresh-seed discovery times in Chromium on the Phase 3 build were 2.5–3.6 s for flagship 1 (8 runs, local and GitHub Actions) and 2.5–3.6 s for flagship 2 (10 runs). That time covers search, shrink, and decimal simplification.
 
@@ -133,7 +151,7 @@ packages/
 - **Bring your own data.** `.csv`, `.parquet`, and `.xlsx` files are parsed locally. The XLSX reader (exceljs) lives only in the lazily loaded ingest worker chunk.
 - **Honest telemetry.** Cold boot per engine, first evaluation (which may include boot), and warm DAG evaluation are reported separately.
 - **No main-thread jank.** The grid renders only the visible cells plus 4 rows and 2 columns of overscan, across 1,048,576 × 16,384 cells. An edit re-links only the edited cells, and the scheduler checks its 8 ms slice in every phase of a recalculation, so editing the input of 20,000 formulas never holds the main thread for 50 ms. X-Ray geometry is recomputed only when the window, layout, graph, selection, or lineage changes. The end-to-end tests fail on any main-thread task over 50 ms while scrolling, typing, recalculating, or rendering X-Ray.
-- **Small main bundle.** The main JavaScript is 194.3 kB gzip, against a 350 KB budget. exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
+- **Small main bundle.** The main JavaScript is 195.1 kB gzip, against a 350 KB budget. exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
 
 The design is specified in `.kiro/specs/` (requirements, design, and tasks for each of the five specs), and the binding rules are in `.kiro/steering/`.
 
@@ -152,11 +170,11 @@ pnpm --filter @g4stein/suture-mcp test:pack   # npm-install the packed MCP tarba
 pnpm run licenses     # dependency license audit
 ```
 
-Playwright end-to-end tests (16, none skipped): five UI journeys (flagship discovery and replay, the 100k-row audit across sheets, CSV drag-and-drop with live SQL and Python, XLSX with a custom assertion and the Python trust gate, a 390×844 viewport with a DOM trademark scan), the 20,000-formula recalculation under the 50 ms task limit, the unisolated readiness pill, and the flagship, ingest, and worker-hardening specs:
+Playwright end-to-end tests (17 on Chromium, plus the judge path on WebKit and Firefox; none skipped): five UI journeys (flagship discovery and replay, the 100k-row audit across sheets, CSV drag-and-drop with live SQL and Python, XLSX with a custom assertion and the Python trust gate, a 390×844 viewport with a DOM trademark scan and the loading shell), the 20,000-formula recalculation under the 50 ms task limit, the unisolated readiness pill, a real Suture Crew replay link, and the flagship, ingest, and worker-hardening specs. The browser projects need `playwright install --with-deps chromium webkit firefox`:
 
 ```bash
-pnpm --filter @suture/web exec playwright install --with-deps chromium
-pnpm test:e2e         # builds the app and the fault-injection harness, then runs Playwright
+pnpm --filter @suture/web exec playwright install --with-deps chromium webkit firefox
+pnpm test:e2e         # builds the app and the fault-injection harness, then runs Playwright (all three browsers)
 ```
 
 The fault-injection harness is built by `packages/web/vite.e2e.config.ts` into `dist-e2e/`. It is never part of the production `dist`.
@@ -178,7 +196,7 @@ Suture is released under the [MIT License](LICENSE). Dependencies must be permis
 
 ## How it was built: Kiro specs and property-based testing
 
-Suture was built with [Kiro](https://kiro.dev) in a spec-driven workflow:
+The full Kiro write-up, with evidence for every claim, is in **[KIRO.md](KIRO.md)**. In short, Suture was built with [Kiro](https://kiro.dev) in a spec-driven workflow:
 
 1. **Steering** (`.kiro/steering/`) fixes the non-negotiables: the `CellValue` contract, error propagation, worker isolation, the license policy, and design tokens.
 2. **Specs** (`.kiro/specs/01…05`) turn each subsystem into numbered requirements, a design, and a task list. Each finished task is checked off with the commit and test file that prove it.
