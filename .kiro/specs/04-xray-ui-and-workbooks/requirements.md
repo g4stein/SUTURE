@@ -19,7 +19,7 @@ It uses these types unchanged:
 1. THE SYSTEM SHALL render only the visible rows and columns plus an overscan of 4 rows and 2 columns.
 2. THE SYSTEM SHALL support sheets up to 1,048,576 rows and 16,384 columns, scaling the scroll extent so that no scroll container exceeds 8,000,000 px.
 3. THE SYSTEM SHALL support arrow-key, Tab, Shift+Tab, Enter, Shift+Enter, Page Up/Down, Ctrl/Cmd+Home, and Ctrl/Cmd+End navigation, typing to start editing (every printable key, including `x`), F2 and double-click to edit, and Delete/Backspace to clear.
-4. THE SYSTEM SHALL display numbers right-aligned in tabular monospace figures with up to 12 significant digits, errors as their code in the `fracture` color, pending engine cells with a pending indicator, and `TableRef` and `Matrix2D` cells as a compact badge (`table 100,000×10`, `matrix 1×2`).
+4. THE SYSTEM SHALL display numbers in grid cells right-aligned in tabular monospace figures with thousand separators, at most 2 decimals when |n| ≥ 1 and 4 significant digits when |n| < 1 (exponent notation outside `[1e-6, 1e15)`), SHALL show the value to 12 significant digits in the cell tooltip and the inspector and keep the raw value in the formula bar, the editor, and every stored value, and SHALL show errors as their code in the `fracture` color, pending engine cells with a pending indicator, and `TableRef` and `Matrix2D` cells as a compact badge (`table 100,000×10`, `matrix 1×2`).
 5. WHILE the user scrolls, types, or selects, THE SYSTEM SHALL keep every main-thread task under 50 ms.
 6. THE SYSTEM SHALL expose the grid with `role="grid"`, `aria-rowcount`, `aria-colcount`, and `aria-selected` on the active cell.
 
@@ -32,6 +32,7 @@ It uses these types unchanged:
 2. WHEN the user types a valid reference or defined name in the name box and presses Enter, THE SYSTEM SHALL select that cell or range.
 3. WHEN the user presses Enter in the formula bar, THE SYSTEM SHALL commit a `setCell` edit, and WHEN the user presses Escape, THE SYSTEM SHALL discard the draft.
 4. WHILE the draft starts with `=SQL(` or `=PY(`, THE SYSTEM SHALL expand the formula bar to a monospace multi-line editor of up to 12 visible lines, where Shift+Enter inserts a newline.
+5. WHEN a built-in flagship opens, THE SYSTEM SHALL activate its model sheet and select its primary KPI cell (Flagship 1 `Model!B5`, Flagship 2 `Margins!B5`) with the Cell inspector open; the Blank Workbook and imported files SHALL open on their first sheet at `A1`.
 
 ### Requirement 3: Cell inspector
 
@@ -142,3 +143,4 @@ It uses these types unchanged:
 3. THE SYSTEM SHALL meet WCAG AA contrast for body text, and SHALL make every action reachable by keyboard.
 4. WHILE the viewport is narrower than 768 px, THE SYSTEM SHALL lay out without horizontal page overflow, keep Exorcise Model reachable, and show a banner that desktop is optimal.
 5. THE SYSTEM SHALL serve hashed static assets as immutable for one year and SHALL NOT install a service worker, so COOP/COEP headers and deploys are never affected by a cached app shell.
+6. THE SYSTEM SHALL paint an obsidian loading shell (the SUTURE wordmark and "Initializing local engines…", announced as a status) from the HTML alone, before any stylesheet or script loads, and SHALL replace it with the app on first render.

@@ -69,6 +69,11 @@ Phase 5 commits on `feat/cli-and-mcp`:
     - _Requirements: 4.1–4.3_
     - Evidence: bce9d9a, f7cf9c8; design §6.
 
+  - [x] 3.5 Make `packages/mcp` publishable as `@g4stein/suture-mcp@0.1.0` with generated third-party notices, and smoke-test the packed tarball outside the monorepo.
+    - Verify: `pnpm --filter @g4stein/suture-mcp test:pack` (design §5.3) passes locally and as its own CI step.
+    - _Requirements: 3.10_
+    - Evidence: 4862e84 (package, notices plugin, README, LICENSE), 02d8326 (`test/tarball.pack.test.ts`, CI step).
+
 - [ ] 5. Follow-ups (not in Phase 5)
   - [ ] 5.1 A `worker_threads` Node engine host with SharedArrayBuffer interrupts and terminate-and-respawn, so a non-terminating kernel becomes `#TIMEOUT!` in the CLI and MCP server (design §8).
   - [ ] 5.2 An offline engine cache (NumPy wheel and DuckDB extensions) for air-gapped CI.

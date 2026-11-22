@@ -118,3 +118,14 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
     - Verify: an e2e at 390×844 measures zero horizontal overflow for all three workbooks and runs and stops a session; `vercel.json` sets `Cache-Control: public, max-age=31536000, immutable` on `/assets/*` only.
     - _Requirements: 11.4, 11.5_
     - Evidence: 68bccbb (`vercel.json`, banner), f30f2fa (stacked layout, bottom-sheet studio); Journey 5 (406c315).
+
+- [x] 12. First-impression polish (code-freeze PR)
+  - [x] 12.1 Paint the obsidian loading shell from `index.html` and land built-in flagships on their live KPI cell.
+    - Verify: Journey 5 holds back the app bundle and sees the shell (SUTURE, "Initializing local engines…", `role=status`, `rgb(9, 11, 16)` on html and the shell), then the app replaces it with no console error. Journeys 1 and 2 open on `Model!B5` / `Margins!B5` with the sheet tab, the cell, and the Cell tab selected.
+    - _Requirements: 2.5, 11.6_
+    - Evidence: 0adc4e2 — `index.html`, `app/store.ts` (`landing`), `e2e/app.ts` (`expectLanding`), `e2e/journeys.spec.ts`.
+  - [x] 12.2 Format grid numbers with `formatGridNumber` and expose `data-raw`.
+    - Verify: unit tests cover separators, the 2-decimal and 4-significant-digit rules, the exponent thresholds, and both zeros; `cellDisplay` keeps the 12-digit tooltip and the raw value. E2E value checks read `data-raw`.
+    - _Requirements: 1.4_
+    - Evidence: 0adc4e2 — `test/ui.test.ts`, `grid/cellDisplay.ts`, `grid/CellView.tsx`.
+

@@ -131,7 +131,20 @@ Measured locally, each run boots its own engines: `eval flagship:1` 3.9 s, `audi
 - `--root <dir>` (else `SUTURE_WORKSPACE`, else the working directory) is the workspace root. Workbook paths resolve against it and, after following symlinks, must stay inside it. `findWorkbookFiles` skips hidden, `node_modules`, and build directories (depth 8, at most 500 files).
 - `console.log` and `console.info` are redirected to stderr, so no library can write into the JSON-RPC stream.
 
-### 5.3 Kiro configuration
+### 5.3 The published package (`@g4stein/suture-mcp`)
+
+- **Contents.** The tarball holds `package.json`, `README.md`, `LICENSE`, `dist/suture-mcp.mjs` (shebang, mode 0755), and `dist/THIRD_PARTY_LICENSES.md`.
+- **Dependencies.** Runtime dependencies are the four external packages: `@duckdb/duckdb-wasm` and `pyodide` (they load `.wasm` files from their package folders; DuckDB's Node build brings `apache-arrow`), plus `@modelcontextprotocol/server` and `zod`. `@suture/core` and `@suture/runtime` are devDependencies, bundled into the bin; `pnpm pack` rewrites their `workspace:*` to `0.1.0`, and npm never installs a package's devDependencies.
+- **Notices.** `build/notices.ts` collects the package directory of every module Rollup bundled. It writes each package's name, version, declared license, LICENSE text and NOTICE text (8 packages: `apache-arrow`, `flatbuffers`, `bessel`, `fast-check`, `pure-rand`, `@formulajs/formulajs`, `jstat`, `tslib`), fails the build when a bundled package has no license file, and sets the bin to 0755.
+- **Smoke test.** `test/tarball.pack.test.ts` (`pnpm --filter @g4stein/suture-mcp test:pack`, a separate CI step because it needs the npm registry):
+  1. packs with pnpm and npm-installs the tarball into a temporary project outside the repository;
+  2. checks the file list, the mode, the manifest, and the notices;
+  3. checks that no installed path resolves into the monorepo;
+  4. runs `scripts/license-check.mjs`'s `verdict` on every npm-resolved package (35; Pyodide is the only MPL-2.0 one);
+  5. drives `node_modules/.bin/suture-mcp` over stdio through `initialize`, `tools/list`, and `suture_run_audit` on `flagship:1`.
+- **Publishing** (manual, with the owner's npm login): `pnpm --filter @g4stein/suture-mcp build`, `cd packages/mcp && pnpm pack`, then `npm publish ./g4stein-suture-mcp-0.1.0.tgz --access public`. Publishing the packed tarball, not the folder, is what removes the `workspace:` specifiers.
+
+### 5.4 Kiro configuration
 
 `.kiro/settings/mcp.json` runs `node packages/mcp/dist/suture-mcp.mjs`. Kiro IDE starts stdio servers in the first workspace folder (kiro.dev, multi-root workspaces). For Kiro CLI the working directory is not documented, so launch it from the repository root. Run `pnpm install && pnpm build` first. Only the two static tools are auto-approved: `suture_run_audit` and `suture_verify_patch` evaluate the workbook (and its Python, with `trustPython`), so Kiro asks before each call.
 
