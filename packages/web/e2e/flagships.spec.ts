@@ -19,11 +19,11 @@ for (const c of CASES) {
     await page.getByTestId('workbook-picker').selectOption(c.id);
     await expect(page.getByTestId('workbook-title')).toHaveText(c.title);
     await page.getByTestId(`sheet-tab-${c.sheet}`).click();
-    for (const k of c.base) await expect(value(page, k)).toHaveText(/^-?\d[\d.e+-]*$/, { timeout: 240_000 });
+    for (const k of c.base) await expect(value(page, k)).toHaveAttribute('data-raw', /^-?\d[\d.e+-]*$/, { timeout: 240_000 });
     await page.getByTestId('panel-tab-assertions').click();
     await expect(page.locator('[data-testid^="assert-"]')).toHaveCount(3);
     await expect(page.locator('[data-testid^="assert-"][data-ok="true"]')).toHaveCount(3, { timeout: 240_000 });
-    const base = await Promise.all(c.base.map(async (k) => `${k} = ${await value(page, k).textContent()}`));
+    const base = await Promise.all(c.base.map(async (k) => `${k} = ${await value(page, k).getAttribute('data-raw')}`));
     console.log(`[e2e] ${c.title}: base case ${base.join(', ')}; first eval ${await telemetry(page, 'tm-first-eval-ms')}`);
 
     const t0 = Date.now();

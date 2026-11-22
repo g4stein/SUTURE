@@ -20,10 +20,14 @@ import { formatValue } from './format.ts';
 export type WorkbookId = 'saas' | 'ecommerce' | 'blank';
 export type WorkbookChoice = WorkbookId | 'imported';
 
-export const WORKBOOKS: ReadonlyArray<{ readonly id: WorkbookId; readonly label: string; readonly make: () => SutureDocument }> = [
-  { id: 'saas', label: 'SaaS Cash Runway', make: saasRunwayDocument },
-  { id: 'ecommerce', label: '100k-Row E-Commerce Margin Audit', make: ecommerceMarginDocument },
-  { id: 'blank', label: 'Blank Workbook', make: blankDocument },
+/**
+ * `landing` (Spec 04 Req 2.5): the cell a built-in workbook opens on, its live KPI rather than its literal inputs. It
+ * belongs to the web app, not the document, so workbook hashes and replay artifacts do not change.
+ */
+export const WORKBOOKS: ReadonlyArray<{ readonly id: WorkbookId; readonly label: string; readonly make: () => SutureDocument; readonly landing: CellKey | null }> = [
+  { id: 'saas', label: 'SaaS Cash Runway', make: saasRunwayDocument, landing: toCellKey({ sheet: 'Model', row: 4, col: 1 }) },
+  { id: 'ecommerce', label: '100k-Row E-Commerce Margin Audit', make: ecommerceMarginDocument, landing: toCellKey({ sheet: 'Margins', row: 4, col: 1 }) },
+  { id: 'blank', label: 'Blank Workbook', make: blankDocument, landing: null },
 ];
 
 export type PanelTab = 'cell' | 'assertions' | 'audit';
@@ -271,9 +275,14 @@ export class AppStore {
     if (untrustedPython) for (const [k, d] of this.dialects) if (d === 'py') this.untrusted.add(k);
     const sheets = this.engine.definition().sheets.map((s) => s.name);
     const first = sheets[0] ?? 'Sheet1';
+    const landing = WORKBOOKS.find((w) => w.id === id)?.landing ?? null;
+    const landingSheet = landing === null ? null : parseCellKey(landing)?.sheet ?? null;
+    const [activeSheet, selection] = landing !== null && landingSheet !== null && sheets.includes(landingSheet)
+      ? [landingSheet, landing]
+      : [first, toCellKey({ sheet: first, row: 0, col: 0 })];
     this.sessionHash = null;
     this.set({
-      workbook: id, title: doc.title, sheets, activeSheet: first, selection: toCellKey({ sheet: first, row: 0, col: 0 }), draft: null,
+      workbook: id, title: doc.title, sheets, activeSheet, selection, draft: null,
       exorcist: { kind: 'idle' }, exorcistStale: false, applied: null, focus: null, config: doc.exorcist, configCheck: this.checkConfig(doc.exorcist), evals: { firstEvalMs: null, warmEvalMs: null },
       structureVersion: this.snapshot.structureVersion + 1, drawer: null, untrustedPy: this.untrusted.size,
     });

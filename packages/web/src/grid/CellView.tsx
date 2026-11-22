@@ -16,6 +16,7 @@ export interface CellViewProps {
   readonly text: string;
   readonly chip: EngineId | null;
   readonly title: string | null;
+  readonly raw: string | null;
   readonly selected: boolean;
   readonly dim: boolean;
   readonly lineage: boolean;
@@ -46,7 +47,7 @@ export const CellView = memo(function CellView(p: CellViewProps): ReactNode {
           <span data-testid={`value-${p.cellKey}`}>{p.text}</span>
         </button>
       ) : (
-        <span data-testid={p.kind === 'empty' ? undefined : `value-${p.cellKey}`} className={`min-w-0 truncate ${p.kind === 'number' ? 'tabular text-ink' : p.kind === 'pending' ? 'suture-pulse text-ink-muted' : 'text-ink'}`}>{p.text}</span>
+        <span data-testid={p.kind === 'empty' ? undefined : `value-${p.cellKey}`} data-raw={p.raw ?? undefined} className={`min-w-0 truncate ${p.kind === 'number' ? 'tabular text-ink' : p.kind === 'pending' ? 'suture-pulse text-ink-muted' : 'text-ink'}`}>{p.text}</span>
       )}
     </div>
   );

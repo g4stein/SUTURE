@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { expect, test, type Page } from '@playwright/test';
 import type { Workbook } from 'exceljs';
 import { watchConsole } from './console.ts';
-import { csvFixture, openApp, scanDomForTrademarks, selectCell, setCell, telemetry, trackLongTasks, value, withinFrameBudget } from './app.ts';
+import { csvFixture, expectLanding, openApp, rawNumber, scanDomForTrademarks, selectCell, setCell, telemetry, trackLongTasks, value, withinFrameBudget } from './app.ts';
 import { HARNESS_NO_ISOLATION_ORIGIN } from './urls.ts';
 
 /**
@@ -26,10 +26,7 @@ async function xlsxFixture(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-async function waitNumber(page: Page, key: string, timeout = 240_000): Promise<number> {
-  await expect(value(page, key)).toHaveText(/^-?\d[\d.e+-]*$/, { timeout });
-  return Number(await value(page, key).textContent());
-}
+const waitNumber = rawNumber;
 
 async function exorcise(page: Page): Promise<number> {
   const t0 = Date.now();
@@ -47,6 +44,8 @@ test('Journey 1 — Flagship 1: Exorcise Model → counterexample → Apply → 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await openApp(page);
   await expect(page.getByTestId('workbook-title')).toHaveText('SaaS Cash Runway & Unit Economics');
+  await expectLanding(page, 'Model!B5');
+  await expect(page.getByTestId('inspector-source')).toHaveText('=Inputs!B2/B4');
   await page.getByTestId('sheet-tab-Model').click();
   const runway = await waitNumber(page, 'Model!B5');
   expect(runway).toBeGreaterThan(0);
@@ -87,13 +86,13 @@ test('Journey 1 — Flagship 1: Exorcise Model → counterexample → Apply → 
   await expect(page.getByTestId('xray-toggle')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('lineage')).toHaveAttribute('data-failing', 'true');
   await expect(page.getByTestId('callout-Model!B5')).toContainText('runway-non-negative');
-  expect(Number(await value(page, 'Model!B5').textContent())).toBe(runway);
+  expect(Number(await value(page, 'Model!B5').getAttribute('data-raw'))).toBe(runway);
 
   await page.getByTestId('apply-counterexample').click();
   await expect(value(page, 'Model!B5')).toHaveText(/^-|#DIV\/0!/, { timeout: 60_000 });
   expect(await page.locator('[data-testid="xray-fracture"]').count()).toBeGreaterThan(0);
   await page.getByTestId('reset-base').click();
-  await expect(value(page, 'Model!B5')).toHaveText(String(Number(runway.toPrecision(12))), { timeout: 60_000 });
+  await expect(value(page, 'Model!B5')).toHaveAttribute('data-raw', String(runway), { timeout: 60_000 });
 
   // The fracture pulses (opacity only); under prefers-reduced-motion it is a static crimson highlight.
   const fracture = page.locator('[data-testid="xray-fracture"]').first();
@@ -129,6 +128,7 @@ test('Journey 2 — Flagship 2: 100k rows aggregate → sheets + Orders drawer �
   await openApp(page);
   await page.getByTestId('workbook-picker').selectOption('ecommerce');
   await expect(page.getByTestId('workbook-title')).toHaveText('100,000-Row E-Commerce Margin Audit');
+  await expectLanding(page, 'Margins!B5');
   await page.getByTestId('sheet-tab-Margins').click();
   const margin = await waitNumber(page, 'Margins!B5');
   expect(margin).toBeGreaterThan(0);
@@ -247,8 +247,8 @@ test('Journey 3 — Blank workbook: honest Lazy → Loading → Ready, drop a re
   await selectCell(page, 'Sheet1!B1');
   await page.keyboard.press('2');
   await page.keyboard.press('Enter');
-  await expect(value(page, 'Sheet1!A1')).not.toHaveText(String(a1), { timeout: 60_000 });
-  expect(Number(await value(page, 'Sheet1!A1').textContent())).toBeCloseTo((a1 / 42) * 2, 4);
+  await expect(value(page, 'Sheet1!A1')).not.toHaveAttribute('data-raw', String(a1), { timeout: 60_000 });
+  expect(Number(await value(page, 'Sheet1!A1').getAttribute('data-raw'))).toBeCloseTo((a1 / 42) * 2, 4);
   const warm = await telemetry(page, 'tm-warm-eval-ms');
   expect(warm).toMatch(/\d+ ms/);
   console.log(`[e2e] Journey 3: cold boot DuckDB ${await telemetry(page, 'tm-duckdb-ms')}, Pyodide ${await telemetry(page, 'tm-pyodide-ms')}; first eval ${await telemetry(page, 'tm-first-eval-ms')}; warm DAG eval ${warm}; validator ${await telemetry(page, 'tm-validator')}`);
@@ -315,7 +315,7 @@ test('Journey 4 — real .xlsx with formulas: evaluate, trust gate for imported 
   await expect(page.getByTestId('toast').filter({ hasText: 'sheets "Pipeline"' })).toBeVisible({ timeout: 120_000 });
   expect(scripts.some((u) => /ingest\.worker/.test(u)), 'the ingest worker chunk loads lazily on the first .xlsx import').toBe(true);
   await expect(page.getByTestId('grid')).toHaveAttribute('data-sheet', 'Pipeline');
-  await expect(value(page, 'Pipeline!E2')).toHaveText('880000', { timeout: 60_000 });
+  await expect(value(page, 'Pipeline!E2')).toHaveText('880,000', { timeout: 60_000 });
   await expect(value(page, 'Pipeline!E3')).toHaveText('1.5');
   await expect(value(page, 'Pipeline!E4')).toHaveText('#NAME?');
   await expect(page.getByTestId('cell-Pipeline!E4')).toHaveAttribute('title', /#NAME\?/);
@@ -449,6 +449,25 @@ test('Journey 5 — 390×844: no horizontal overflow, Exorcise stays reachable, 
   await openApp(broken, '/#replay=v1.not-a-real-artifact');
   await expect(broken.getByTestId('exorcist-status')).toHaveText(/^replay link: /);
   expect(brokenErrors, brokenErrors.join('\n')).toEqual([]);
+
+  // Loading shell (Req 11.6): with the app bundle held back, the HTML alone paints the obsidian shell (never a white
+  // frame); once the bundle runs, React replaces it with the app.
+  const slow = await page.context().newPage();
+  const slowErrors = watchConsole(slow);
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await slow.route(/\/assets\/index-[^/]*\.js$/, async (route) => { await held; await route.continue(); });
+  await slow.goto('/', { waitUntil: 'commit' });
+  const shell = slow.getByTestId('loading-shell');
+  await expect(shell).toBeVisible();
+  await expect(shell).toContainText('SUTURE');
+  await expect(shell).toContainText('Initializing local engines…');
+  await expect(shell).toHaveAttribute('role', 'status');
+  expect(await slow.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.getElementById('suture-shell') as HTMLElement).backgroundColor])).toEqual(['rgb(9, 11, 16)', 'rgb(9, 11, 16)']);
+  release();
+  await expect(slow.getByTestId('pill-grid')).toHaveText('Grid: Ready');
+  await expect(shell).toHaveCount(0);
+  expect(slowErrors, slowErrors.join('\n')).toEqual([]);
 });
 
 /**

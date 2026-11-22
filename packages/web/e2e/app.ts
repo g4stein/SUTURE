@@ -5,6 +5,25 @@ import { loadDigests, scanText } from '../test/fixtures/trademark.ts';
 
 export const value = (page: Page, key: string) => page.getByTestId(`value-${key}`);
 
+/**
+ * A number cell's exact value. Grid text is display-formatted (`6,000,000`, `21.76`), so value checks read `data-raw`
+ * (`String(n)`) instead of parsing the text (Spec 04 Req 1.4).
+ */
+export async function rawNumber(page: Page, key: string, timeout = 240_000): Promise<number> {
+  await expect(value(page, key)).toHaveAttribute('data-raw', /^-?\d[\d.e+-]*$/, { timeout });
+  return Number(await value(page, key).getAttribute('data-raw'));
+}
+
+/** The workbook opens on its landing cell, with the Cell inspector showing it (Spec 04 Req 2.5). */
+export async function expectLanding(page: Page, cell: string): Promise<void> {
+  const sheet = cell.slice(0, cell.indexOf('!'));
+  await expect(page.getByTestId('name-box')).toHaveValue(cell);
+  await expect(page.getByTestId(`sheet-tab-${sheet}`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId(`cell-${cell}`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('panel-tab-cell')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('cell-inspector')).toContainText(cell);
+}
+
 export async function openApp(page: Page, path = '/'): Promise<void> {
   await page.goto(path);
   await expect(page.getByTestId('pill-grid')).toHaveText('Grid: Ready');

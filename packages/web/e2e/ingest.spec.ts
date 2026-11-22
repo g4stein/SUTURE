@@ -37,7 +37,7 @@ test('BYO data: .csv and .xlsx import locally, exceljs loads only on the first .
   await expect(page.getByTestId('dataset-q3_orders')).toContainText('units:Int64');
   expect(scripts.some((u) => /ingest\.worker/.test(u)), 'the ingest worker is not loaded for CSV').toBe(false);
   await setCell(page, 'Sheet1!A1', '=SQL("SELECT sum(units * price) FROM q3_orders WHERE region = \'EU\'")');
-  await expect(value(page, 'Sheet1!A1')).toHaveText(/^\d+(\.\d+)?$/, { timeout: 60_000 });
+  await expect(value(page, 'Sheet1!A1')).toHaveAttribute('data-raw', /^\d+(\.\d+)?$/, { timeout: 60_000 });
 
   // .xlsx → ingest worker (exceljs) → sheets + Arrow table → DuckDB
   await page.getByTestId('import-file').setInputFiles({ name: 'Pipeline.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: await xlsxFixture() });
@@ -47,7 +47,7 @@ test('BYO data: .csv and .xlsx import locally, exceljs loads only on the first .
   await expect(page.getByTestId('import-report').first()).toContainText('sheets "Pipeline"');
   await expect(page.getByTestId('import-report').first()).toContainText('1 cell(s) #NAME?');
   expect(scripts.some((u) => /ingest\.worker/.test(u)), 'the ingest worker chunk loads lazily on the first .xlsx import').toBe(true);
-  await expect(value(page, 'Pipeline!E2')).toHaveText('880000');
+  await expect(value(page, 'Pipeline!E2')).toHaveText('880,000');
   await expect(value(page, 'Pipeline!E3')).toHaveText('1.5');
   await expect(value(page, 'Pipeline!E4')).toHaveText('#NAME?');
   await expect(page.getByTestId('dataset-pipeline_xlsx_pipeline')).toContainText('4 rows');
@@ -55,7 +55,7 @@ test('BYO data: .csv and .xlsx import locally, exceljs loads only on the first .
   await expect(value(page, 'Sheet1!A2')).toHaveText('71', { timeout: 60_000 });
   await setCell(page, 'Sheet1!A4', '=SQL("SELECT * FROM pipeline_xlsx_pipeline")');
   await setCell(page, 'Sheet1!A3', '=PY("t = inputs[\'A4\']; float(t[\'value\'].mean())")'); // one-line source: ';' separates statements
-  await expect(value(page, 'Sheet1!A3')).toHaveText('220000', { timeout: 240_000 });
+  await expect(value(page, 'Sheet1!A3')).toHaveText('220,000', { timeout: 240_000 });
 
   expect(uploads, 'imports never upload bytes').toEqual([]);
   expect(errors, errors.join('\n')).toEqual([]);

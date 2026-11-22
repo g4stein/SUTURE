@@ -262,7 +262,7 @@ export function Grid({ snap, store }: { readonly snap: AppSnapshot; readonly sto
                       const ku = U(c.key);
                       const dim = frame !== null && src !== null && !frame.involved.has(ku);
                       return (
-                        <CellView key={c.key} cellKey={c.key} col={c.col} x={c.x} w={c.w} kind={d.kind} text={d.text} chip={d.chip} title={d.title}
+                        <CellView key={c.key} cellKey={c.key} col={c.col} x={c.x} w={c.w} kind={d.kind} text={d.text} chip={d.chip} title={d.title} raw={d.raw}
                           selected={U(snap.selection) === ku} dim={dim} lineage={snap.xray && lineageSet.has(ku)} />
                       );
                     })}

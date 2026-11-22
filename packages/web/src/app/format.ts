@@ -1,7 +1,24 @@
 import type { EngineName, EngineState, EngineStatus } from '@suture/runtime/bridge';
 
+import { formatNumber } from '@suture/runtime/headless';
+
 /** Value display is shared with the CLI and the MCP server, so every host prints numbers the same way (Spec 04 §3). */
 export { formatNumber, formatScalar, formatSummary, formatValue, tableBadge } from '@suture/runtime/headless';
+
+const GRID_LARGE = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2, useGrouping: true });
+const GRID_SMALL = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4, useGrouping: true });
+
+/**
+ * Grid cells only (Spec 04 Req 1.4): thousand separators, at most 2 decimals when |n| ≥ 1, 4 significant digits when
+ * |n| < 1, and the shared exponent form outside [1e-6, 1e15). The tooltip, inspector, formula bar, X-Ray callouts,
+ * Audit Studio, and every stored value keep full precision.
+ */
+export function formatGridNumber(n: number): string {
+  if (n === 0) return '0';
+  const a = Math.abs(n);
+  if (a < 1e-6 || a >= 1e15) return formatNumber(n);
+  return (a >= 1 ? GRID_LARGE : GRID_SMALL).format(n);
+}
 
 export function formatMs(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('en-US')} ms`;
