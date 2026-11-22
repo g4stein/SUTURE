@@ -1,15 +1,47 @@
 {
-  "name": "@suture/mcp",
+  "name": "@g4stein/suture-mcp",
   "version": "0.1.0",
-  "private": true,
+  "description": "Local Model Context Protocol server for Suture: audit cross-engine spreadsheet models (formulas, DuckDB SQL, Python/NumPy) with property-based testing, and verify formula patches in memory.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "suture-mcp": "./dist/suture-mcp.mjs"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/g4stein/SUTURE.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/g4stein/SUTURE/tree/main/packages/mcp#readme",
+  "bugs": {
+    "url": "https://github.com/g4stein/SUTURE/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "kiro",
+    "spreadsheet",
+    "duckdb",
+    "pyodide",
+    "property-based-testing",
+    "fast-check"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vite build && vitest --run"
+    "test": "vite build && vitest --run",
+    "test:pack": "vite build && vitest --run --config vitest.pack.config.ts"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
