@@ -1,0 +1,84 @@
+1
+00:00:04,500 --> 00:00:13,700
+Live at suture-nu.vercel.app. A SaaS runway model: 21.76 months. Its rule: runway >= 0.
+
+2
+00:00:16,700 --> 00:00:22,500
+FX formulas and a PY (Pyodide + NumPy) burn projection...
+
+3
+00:00:22,500 --> 00:00:28,500
+...fed by a SQL (DuckDB-WASM) cohort table.
+
+4
+00:00:28,500 --> 00:00:36,100
+X-Ray: every dependency thread across all three engines.
+
+5
+00:00:36,100 --> 00:00:40,300
+Exorcise Model: property-based fuzzing through SQL, PY and FX.
+
+6
+00:00:40,300 --> 00:00:48,500
+Violated after 2,488 ms, shrunk to minimal inputs. Seed -1575710977.
+
+7
+00:00:48,500 --> 00:00:57,200
+Apply Counterexample: runway -179.88, status RAISE NOW. The fracture traces it back.
+
+8
+00:00:57,200 --> 00:00:58,700
+Copy Replay Link...
+
+9
+00:00:58,700 --> 00:01:03,100
+...and open it in a fresh page load.
+
+10
+00:01:03,100 --> 00:01:08,100
+replay: reproduced (exact). Same seed, -1575710977.
+
+11
+00:01:08,100 --> 00:01:12,400
+Apply again: the same -179.88.
+
+12
+00:01:12,400 --> 00:01:25,600
+100,000 orders generated in DuckDB-WASM, then NumPy, then formulas.
+
+13
+00:01:25,600 --> 00:01:29,000
+Exorcise Model, across all three engines...
+
+14
+00:01:29,000 --> 00:01:40,400
+Found: the discount cap is applied per discount, not to the stacked total.
+
+15
+00:01:40,400 --> 00:01:42,500
+A replay link produced by the Kiro Crew app...
+
+16
+00:01:42,500 --> 00:01:47,100
+...opens here: replay reproduced (exact).
+
+17
+00:01:47,100 --> 00:01:53,300
+Applied: net price 0, so margin and status are #DIV/0!.
+
+18
+00:01:53,300 --> 00:02:02,300
+The same engine as an MCP server: npx -y @g4stein/suture-mcp@0.1.0
+
+19
+00:02:02,300 --> 00:02:14,200
+suture_run_audit finds the same bug and shrinks it to 8 inputs.
+
+20
+00:02:14,200 --> 00:02:18,800
+suture_verify_patch proves the fix: fresh audit passed, 0 regressions.
+
+21
+00:02:18,800 --> 00:02:39,500
+Built in Kiro: 5 specs, 3 steering files, 2 hooks, 3 custom agents, all in .kiro/.
+
