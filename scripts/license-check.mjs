@@ -4,7 +4,7 @@
 // SPDX expression (AND / OR / WITH / parentheses / "-or-later" / "+"). A package passes when at least one OR-alternative is
 // fully permissive. GPL / LGPL / AGPL alternatives never satisfy the policy (but "MIT OR GPL-3.0" passes via MIT); MPL-2.0 is
 // allowed only for the unmodified Pyodide runtime. Missing or unparseable licenses fail.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -90,9 +90,21 @@ function packagesFromLock(text) {
   return [...out.values()];
 }
 
+/** pnpm's virtual store folders, read once. Packages with peer dependencies live in suffixed folders (`vite@7.3.8_@types+node@…`). */
+let storeDirs = null;
+function storeDir(pkg) {
+  const base = `${pkg.name.replace('/', '+')}@${pkg.version}`;
+  if (storeDirs === null) {
+    const dir = join(root, 'node_modules', '.pnpm');
+    storeDirs = existsSync(dir) ? readdirSync(dir) : [];
+  }
+  return storeDirs.find((d) => d === base) ?? storeDirs.find((d) => d.startsWith(`${base}_`)) ?? null;
+}
+
 function licenseOf(pkg) {
-  const file = join(root, 'node_modules', '.pnpm', `${pkg.name.replace('/', '+')}@${pkg.version}`, 'node_modules', pkg.name, 'package.json');
-  if (!existsSync(file)) return { license: null, installed: false };
+  const dir = storeDir(pkg);
+  const file = dir === null ? null : join(root, 'node_modules', '.pnpm', dir, 'node_modules', pkg.name, 'package.json');
+  if (file === null || !existsSync(file)) return { license: null, installed: false };
   const json = JSON.parse(readFileSync(file, 'utf8'));
   let lic = json.license ?? json.licenses;
   if (Array.isArray(lic)) lic = `(${lic.map((l) => (typeof l === 'string' ? l : l.type)).join(' OR ')})`;
@@ -127,7 +139,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (!v.ok) failures.push(`${p.name}@${p.version}: ${v.reason}`);
     else if (license !== null && /\bOR\b/i.test(license)) dual.push(`${p.name}@${p.version} (${license})`);
   }
-  console.log(`license audit: ${pkgs.length} packages in pnpm-lock.yaml (${pkgs.length - skipped} installed and checked; ${skipped} optional other-platform binaries not installed here)`);
+  console.log(`license audit: ${pkgs.length} packages in pnpm-lock.yaml (${pkgs.length - skipped} installed and checked; ${skipped} not installed here: optional binaries for other platforms, and the pnpm release pinned by packageManager)`);
   for (const [lic, n] of [...tally].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${lic}`);
   if (dual.length > 0) console.log(`  dual-licensed, accepted under the permissive alternative: ${dual.join(', ')}`);
   const mpl = [...tally.keys()].filter((l) => /MPL/.test(l));

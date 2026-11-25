@@ -43,6 +43,10 @@ jobs:
       - name: Production build
         run: pnpm build
 
+      # Spec 02 Req 10.2: main-thread JavaScript <= 350 kB gzip (workers excluded). Fails the build when exceeded.
+      - name: Main bundle budget
+        run: pnpm run budget
+
       # Spec 05 task 3.5: pack @g4stein/suture-mcp, npm-install the tarball outside the repo, and run the installed bin.
       - name: MCP package tarball smoke test
         run: pnpm --filter @g4stein/suture-mcp test:pack
