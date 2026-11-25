@@ -1,0 +1,103 @@
+1
+00:00:00,100 --> 00:00:04,650
+Spreadsheets run real money. Suture proves exactly where they break.
+
+2
+00:00:04,700 --> 00:00:13,747
+This is Suture, live in the browser. A SaaS runway model: 21.76 months. One rule: runway must never go negative.
+
+3
+00:00:13,800 --> 00:00:16,614
+Three engines. One graph. No server.
+
+4
+00:00:16,900 --> 00:00:26,710
+Formulas sit next to a Python and NumPy burn projection, which reads a DuckDB SQL table. All three run in WebAssembly, right in your tab.
+
+5
+00:00:28,700 --> 00:00:32,370
+X-Ray draws every dependency, across all three engines.
+
+6
+00:00:35,300 --> 00:00:48,294
+Now: Exorcise Model. Suture fuzzes the inputs through SQL, Python, and formulas. In 2.5 seconds, it finds a counterexample, and shrinks it to the smallest failing inputs.
+
+7
+00:00:48,600 --> 00:00:57,252
+Apply it. Runway drops to -179.88. Status: RAISE NOW. The fracture traces it back through the Python projection.
+
+8
+00:00:57,300 --> 00:01:00,660
+Copy the replay link, and open it in a fresh page.
+
+9
+00:01:03,200 --> 00:01:05,416
+Same seed. Reproduced, exactly.
+
+10
+00:01:08,200 --> 00:01:11,027
+Apply it again: the same -179.88.
+
+11
+00:01:12,600 --> 00:01:21,400
+Now, at scale. This audit generates 100,000 orders in DuckDB, then runs NumPy, then plain formulas.
+
+12
+00:01:25,700 --> 00:01:28,599
+Exorcise again, across all three engines.
+
+13
+00:01:29,100 --> 00:01:39,200
+It finds a real policy bug: the discount cap is applied to each discount, not to the stacked total. So stacked Hardlines orders lose money.
+
+14
+00:01:40,450 --> 00:01:43,059
+This link came from Suture's Kiro Crew app.
+
+15
+00:01:43,100 --> 00:01:45,838
+It opens here, and reproduces exactly.
+
+16
+00:01:47,200 --> 00:01:52,130
+Apply it: the quote is priced at zero, so the margin divides by zero.
+
+17
+00:01:53,500 --> 00:01:59,840
+The same engine ships as an MCP server on npm. This is a real session, not a mock-up.
+
+18
+00:02:02,300 --> 00:02:12,610
+The audit finds the runway bug again. Then, verify_patch replays that counterexample against my fix, and runs a fresh, 1,000-run audit.
+
+19
+00:02:14,300 --> 00:02:18,848
+Fixed. Zero regressions. Kiro calls these same tools.
+
+20
+00:02:18,850 --> 00:02:22,399
+I built Suture in Kiro, spec first: five specs.
+
+21
+00:02:22,400 --> 00:02:24,640
+Steering that Kiro always loads.
+
+22
+00:02:25,200 --> 00:02:28,984
+A hook that reruns the property tests after core edits.
+
+23
+00:02:29,000 --> 00:02:32,149
+A log of real bugs, each with a replayable counterexample.
+
+24
+00:02:32,900 --> 00:02:33,936
+Custom agents.
+
+25
+00:02:36,200 --> 00:02:37,700
+And the Kiro Crew app.
+
+26
+00:02:39,750 --> 00:02:46,367
+Suture. Every spreadsheet bug, proven. Try it at suture-nu.vercel.app.
