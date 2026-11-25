@@ -120,6 +120,10 @@ test('Journey 1 — Flagship 1: Exorcise Model → counterexample → Apply → 
   await expect(fresh.getByTestId('failing-inputs')).toHaveText(inputs);
   await expect(fresh.getByTestId('lineage')).toHaveAttribute('data-failing', 'true');
   expect(await fresh.locator('[data-testid="xray-fracture"]').count()).toBeGreaterThan(0);
+  // The grid still shows base values after a replay; the hint says so until the counterexample is applied.
+  await expect(fresh.getByTestId('replay-hint')).toBeVisible();
+  await fresh.getByTestId('apply-counterexample').click();
+  await expect(fresh.getByTestId('replay-hint')).toHaveCount(0);
   expect(errors, errors.join('\n')).toEqual([]);
   expect(freshErrors, freshErrors.join('\n')).toEqual([]);
 });
@@ -428,6 +432,9 @@ test('Journey 5 — 390×844: no horizontal overflow, Exorcise stays reachable, 
   await openApp(page);
   await expect(page.getByTestId('narrow-banner')).toBeVisible();
   await expect(page.getByTestId('run-exorcist')).toBeInViewport();
+  // Landing on Model!B5 keeps its label's start in view: the grid does not scroll sideways on a phone.
+  await expect(page.getByTestId('value-Model!B5')).toBeInViewport();
+  expect(await page.getByTestId('grid').evaluate((el) => el.scrollLeft), 'landing scrolled the labels out of view').toBe(0);
   for (const id of ['saas', 'ecommerce', 'blank'] as const) {
     if (id !== 'saas') await page.getByTestId('workbook-picker').selectOption(id);
     await page.waitForTimeout(400);
@@ -448,8 +455,14 @@ test('Journey 5 — 390×844: no horizontal overflow, Exorcise stays reachable, 
   const broken = await page.context().newPage();
   const brokenErrors = watchConsole(broken);
   await openApp(broken, '/#replay=v1.not-a-real-artifact');
-  await expect(broken.getByTestId('exorcist-status')).toHaveText(/^replay link: /);
+  await expect(broken.getByTestId('exorcist-status')).toHaveText(/^replay link (is not valid base64url|could not be decompressed)$/);
   expect(brokenErrors, brokenErrors.join('\n')).toEqual([]);
+  // An unsupported replay version says so instead of being ignored (a new page: a hash-only goto does not reload).
+  const future = await page.context().newPage();
+  const futureErrors = watchConsole(future);
+  await openApp(future, '/#replay=v2.abc');
+  await expect(future.getByTestId('exorcist-status')).toHaveText('replay link: not a Suture v1 replay link');
+  expect(futureErrors, futureErrors.join('\n')).toEqual([]);
 
   // Loading shell (Req 11.6): with the app bundle held back, the HTML alone paints the obsidian shell (never a white
   // frame); once the bundle runs, React replaces it with the app.

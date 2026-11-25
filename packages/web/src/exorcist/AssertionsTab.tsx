@@ -171,7 +171,7 @@ export function AssertionsTab({ snap, store }: { readonly snap: AppSnapshot; rea
       </div>
       <section>
         <div className="mb-1.5 flex items-center justify-between">
-          <h3 className="font-mono text-[11px] uppercase tracking-wider text-ink-muted">Fuzz domains</h3>
+          <h2 className="font-mono text-[11px] uppercase tracking-wider text-ink-muted">Fuzz domains</h2>
           <button type="button" data-testid="add-domain" disabled={literal === null || isInput} onClick={addDomain}
             title={literal === null ? 'Select a cell holding a literal number' : isInput ? 'Already a fuzz input' : `Fuzz ${sel}`}
             className="rounded border border-slate-line px-2 py-0.5 font-mono text-[11px] text-ink hover:border-engine-formula disabled:opacity-40">+ Domain on {sel.slice(sel.lastIndexOf('!') + 1)}</button>
@@ -181,7 +181,7 @@ export function AssertionsTab({ snap, store }: { readonly snap: AppSnapshot; rea
       </section>
       <section>
         <div className="mb-1.5 flex items-center justify-between">
-          <h3 className="font-mono text-[11px] uppercase tracking-wider text-ink-muted">Tier 2 assertions</h3>
+          <h2 className="font-mono text-[11px] uppercase tracking-wider text-ink-muted">Tier 2 assertions</h2>
           <button type="button" data-testid="add-assertion" disabled={!hasSource} onClick={addAssertion}
             className="rounded border border-slate-line px-2 py-0.5 font-mono text-[11px] text-ink hover:border-engine-formula disabled:opacity-40">+ Assertion on {sel.slice(sel.lastIndexOf('!') + 1)}</button>
         </div>

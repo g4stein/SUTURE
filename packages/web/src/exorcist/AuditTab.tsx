@@ -41,10 +41,11 @@ function ActionBar({ snap, store, artifact }: { readonly snap: AppSnapshot; read
   const replayFile = useRef<HTMLInputElement>(null);
   const x = snap.exorcist;
   const fragment = x.kind === 'finished' && x.verdict.kind === 'violated' ? x.fragment : null;
-  const btn = 'rounded-md border px-2 py-1 font-mono text-[11px] disabled:cursor-not-allowed disabled:opacity-40';
+  // Disabled buttons drop their accent border, fill, and text color, so they read as unavailable, not as muted actions.
+  const btn = 'rounded-md border px-2 py-1 font-mono text-[11px] disabled:cursor-not-allowed disabled:border-slate-line disabled:bg-transparent disabled:text-ink-muted disabled:opacity-50 disabled:hover:bg-transparent';
   return (
     <div className="flex flex-wrap gap-1.5" data-testid="action-bar">
-      <button type="button" data-testid="apply-counterexample" disabled={artifact === null} onClick={() => void store.applyCounterexample()} className={`${btn} border-fracture bg-fracture/10 text-fracture hover:bg-fracture/20`}>Apply Counterexample</button>
+      <button type="button" data-testid="apply-counterexample" disabled={artifact === null} onClick={() => void store.applyCounterexample()} className={`${btn} border-fracture bg-fracture/5 text-fracture hover:bg-fracture/15`}>Apply Counterexample</button>
       <button type="button" data-testid="reset-base" disabled={snap.applied === null} onClick={() => void store.resetBaseValues()} className={`${btn} border-slate-line text-ink hover:border-ink-muted`}>Reset Base Values</button>
       <button type="button" data-testid="focus-xray" disabled={artifact === null} onClick={() => store.focusInXRay()} className={`${btn} border-engine-sql/60 text-engine-sql hover:bg-engine-sql/10`}>Focus in X-Ray</button>
       <button type="button" data-testid="copy-replay" disabled={!(x.kind === 'finished' && x.verdict.kind === 'violated')} onClick={() => void store.copyReplayLink()} className={`${btn} border-slate-line text-ink hover:border-ink-muted`}>
@@ -98,6 +99,10 @@ export function AuditTab({ snap, store }: { readonly snap: AppSnapshot; readonly
         <span data-testid="exorcist-status" className={`min-w-0 flex-1 font-mono text-[11px] ${x.kind === 'error' || (x.kind === 'finished' && x.verdict.kind === 'violated') ? 'text-fracture' : 'text-ink'}`}>{statusText(x)}</span>
         {snap.exorcistStale && <span data-testid="verdict-stale" className="rounded border border-engine-py px-1.5 font-mono text-[10px] text-engine-py" title="The workbook changed after this session started">stale</span>}
       </div>
+      {x.kind === 'replayed' && x.outcome.kind === 'reproduced' && snap.applied === null && (
+        // A replay recomputes the counterexample off-grid (the X-Ray callouts show its values); the grid keeps base values.
+        <p data-testid="replay-hint" className="font-mono text-[11px] text-ink-muted">The grid shows base values. Apply Counterexample loads the failing inputs.</p>
+      )}
       <div className="grid grid-cols-2 gap-1.5">
         <Stat label="execution mode" value={mode === null ? '—' : MODE_LABEL[mode]} testid="verdict-mode" mode={mode ?? ''} />
         <Stat label="seed" value={x.kind === 'running' || x.kind === 'finished' ? String(x.seed) : artifact !== null ? String(artifact.seed) : '—'} />
@@ -127,7 +132,7 @@ export function AuditTab({ snap, store }: { readonly snap: AppSnapshot; readonly
       {artifact === null && <ActionBar snap={snap} store={store} artifact={null} />}
 
       <section>
-        <h3 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-ink-muted">Tier 1 · universal invariants</h3>
+        <h2 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-ink-muted">Tier 1 · universal invariants</h2>
         <ul className="space-y-0.5">
           {TIER1.map((i) => {
             const s = t1(i.id);
@@ -140,7 +145,7 @@ export function AuditTab({ snap, store }: { readonly snap: AppSnapshot; readonly
         </ul>
       </section>
       <section>
-        <h3 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-ink-muted">Tier 2 · assertions</h3>
+        <h2 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-ink-muted">Tier 2 · assertions</h2>
         {snap.config.assertions.length === 0 && <div className="text-ink-muted">none declared</div>}
         <ul className="space-y-0.5">
           {snap.assertions.map((a) => {
