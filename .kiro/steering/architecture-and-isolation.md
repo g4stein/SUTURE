@@ -71,7 +71,7 @@ Cross-Origin-Embedder-Policy: credentialless
 
 ## 5. Dependency & license policy
 
-- The repository is MIT. Only MIT, Apache-2.0, BSD, or ISC dependencies are allowed. The one named exception is `pyodide` (MPL-2.0), approved because it is used as an unmodified runtime loaded in a worker and is never vendored or modified.
+- The repository is MIT. Only permissive licenses are allowed: MIT, Apache-2.0, BSD, and ISC for code, plus the permissive licenses that appear transitively today (0BSD, BlueOak-1.0.0, Zlib, and CC-BY-4.0 for data-only packages such as browser-support tables). A dual-licensed package passes through its permissive option (for example `jszip`, `MIT OR GPL-3.0-or-later`, is used under MIT). `scripts/license-check.mjs` holds the exact allowlist. The one named exception is `pyodide` (MPL-2.0), approved because it is used as an unmodified runtime loaded in a worker and is never vendored or modified.
 - **Forbidden:** any GPL, LGPL, or AGPL dependency, including HyperFormula.
 - **Approved core libraries:** `fast-formula-parser` (MIT), `@formulajs/formulajs` (MIT), `@duckdb/duckdb-wasm` (MIT), `apache-arrow` (Apache-2.0), `pyodide` (MPL-2.0 runtime, loaded in a worker in the browser and in-process in the Node hosts), `fast-check` (MIT), `exceljs` (MIT).
 - **Approved MCP libraries (`packages/mcp` only):** `@modelcontextprotocol/server` and `@modelcontextprotocol/core` (Apache-2.0), and `zod` (MIT). Together they add 3 packages (Spec 05 §5.1).

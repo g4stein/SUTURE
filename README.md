@@ -35,10 +35,10 @@ No data leaves your machine. There is no application server, no remote execution
 
 ## Using Suture
 
-- **Pick a workbook** in the command bar: *SaaS Cash Runway*, *100k-Row E-Commerce Margin Audit*, or *Blank Workbook* (`?workbook=blank` opens it directly). The readiness pill shows each engine honestly: `Grid: Ready | DuckDB: Lazy | Python/NumPy: Lazy`, then `Loading` and `Ready`. Click it for telemetry: `crossOriginIsolated`, the SQL validator, cold boot per engine, first and warm evaluation, and dataset row counts.
+- **Pick a workbook** in the command bar: *SaaS Cash Runway*, *100k-Row E-Commerce Margin Audit*, *Wholesale Quote (Crew sample)*, or *Blank Workbook* (`?workbook=blank` opens it directly). The readiness pill shows each engine honestly: `Grid: Ready | DuckDB: Lazy | Python/NumPy: Lazy`, then `Loading` and `Ready`. Click it for telemetry: `crossOriginIsolated`, the SQL validator, cold boot per engine, first and warm evaluation, and dataset row counts.
 - **Edit like a spreadsheet.** Type on a cell to edit it. Enter, Tab, the arrow keys, Page Up/Down, and Ctrl/Cmd+Home navigate, and Delete clears. The name box jumps to any `Sheet!A1`. `=SQL(…)` and `=PY(…)` drafts open a multi-line editor in the formula bar, where Shift+Enter inserts a newline. Cells carry `FX` / `SQL` / `PY` chips. A table result shows as a `100,000 × 10 — inspect` badge that opens the first 100 rows in the preview drawer.
 - **X-Ray** (Alt+X, or the toolbar button) draws a thread from each precedent to its dependent. Threads are colored by the dependent's engine (SQL cyan dashed, Python amber dotted, formula emerald solid) and dim everything outside the focus. Links to other sheets appear as portal badges at the grid edge.
-- **Exorcise Model** fuzzes the declared inputs through every engine. On a violation, X-Ray jumps to the failing cell and draws the lineage from the shrunk input through SQL, Python, and formulas in pulsing crimson. Callouts show each step's value, and a lineage strip lets you jump between sheets. The Audit Studio shows the Tier 1 invariants, the Tier 2 assertions, the minimal failing inputs, and the actions: **Apply Counterexample**, **Reset Base Values**, **Focus in X-Ray**, **Copy Replay Link**, **Download / Import Replay JSON**, and **Export workbook (.suture.json)**.
+- **Exorcise Model** fuzzes the declared inputs through every engine. On a violation, X-Ray jumps to the failing cell and draws the lineage from the shrunk input through SQL, Python, and formulas in pulsing crimson. Callouts show each step's value, and a lineage strip lets you jump between sheets. The Audit Studio shows the Tier 1 invariants, the Tier 2 assertions, the minimal failing inputs, and the actions: **Apply Counterexample**, **Reset Base Values**, **Focus in X-Ray**, **Copy Replay Link**, **Download / Import Replay JSON**, and **Export workbook (.suture.json)**. Opening a replay link recomputes the counterexample and shows its values in the X-Ray callouts; the grid keeps base values until you press **Apply Counterexample**.
 - **Add your own checks** in *Assertions & Domains*. You can use all 9 assertion kinds (`≥ ≤ > <`, `between`, `not error`, `finite`, `not null`, `monotonic with`), with constant or cell operands, and float or integer fuzz domains on input cells.
 - **Bring your own data**: drop `.csv`, `.parquet`, `.xlsx`, `.suture.json`, or a replay `.json` anywhere on the page. Files are parsed locally and never uploaded. Python that arrives in an imported file stays blocked behind a trust banner until you trust it.
 - Screens narrower than 768 px get a stacked layout with the studio as a bottom sheet.
@@ -57,13 +57,14 @@ node packages/cli/dist/suture.mjs inspect flagship:2 --cell Margins!B5  # dialec
 
 - `<workbook>` is `flagship:1`, `flagship:2`, or a `.suture.json` file. Add `--json` for machine-readable output. It is identical for the same seed, except a `meta` block with timings and the replay artifact's `createdAt`.
 - `--seed <n>` makes an audit reproducible; without it the seed is random and printed.
-- Exit codes are CI-friendly. `audit` exits `0` when every invariant and assertion held, `1` on a violation, and `2` on a configuration, input, or runtime error. `replay` exits `0` only for an exact reproduction. `eval` and `inspect` exit `0`, or `2` on bad input.
+- Exit codes are CI-friendly. `audit` exits `0` when every invariant and assertion held, `1` on a violation, `2` on a configuration, input, or runtime error, and `130` when interrupted. `replay` exits `0` only for an exact reproduction, `1` when it reproduces only directly or not at all, and `2` for a wrong workbook (hash mismatch) or an error. `eval` and `inspect` exit `0`, or `2` on bad input.
+- `replay` finds the built-in flagships by the artifact's workbook hash; for any other workbook, pass it with `--workbook <file.suture.json>`.
 - **Python trust.** Under Node, Python can reach the file system and the network through Pyodide's JavaScript bridge. So a `.suture.json` file's `=PY()` cells run only with `--trust-python`; otherwise they evaluate to `#PY!` and Pyodide never starts. The built-in flagships always run.
 - **No interrupts.** Engines run in-process, so a cell whose code never returns blocks the command.
 
 ## Suture in Kiro: the MCP server
 
-`packages/mcp` is a local Model Context Protocol server over stdio. The workspace config [`.kiro/settings/mcp.json`](.kiro/settings/mcp.json) starts it with `node packages/mcp/dist/suture-mcp.mjs`. Run `pnpm install && pnpm build` once and open the repository in Kiro; Kiro CLI should be started from the repository root. It serves both MCP protocol eras: the 2025-11-25 `initialize` handshake, and the stateless 2026-07-28 revision with `server/discover`.
+`packages/mcp` is a local Model Context Protocol server over stdio. The workspace config [`.kiro/settings/mcp.json`](.kiro/settings/mcp.json) starts it with `node packages/mcp/dist/suture-mcp.mjs`. Run `pnpm install && pnpm build` once and open the repository in Kiro. If you use Kiro CLI, start it from the repository root. It serves both MCP protocol eras: the 2025-11-25 `initialize` handshake, and the stateless 2026-07-28 revision with `server/discover`.
 
 | Tool | What it does |
 |---|---|
@@ -109,11 +110,11 @@ pnpm pack                                              # writes g4stein-suture-m
 npm publish ./g4stein-suture-mcp-0.1.0.tgz --access public
 ```
 
-Publish the packed tarball, not the folder: a plain `npm publish` in `packages/mcp` would keep the `workspace:*` devDependency specifiers in the published manifest.
+The same steps run in the manual **Publish Suture MCP** workflow (`.github/workflows/publish-mcp.yml`, with an `NPM_TOKEN` secret). Publish the packed tarball, not the folder: a plain `npm publish` in `packages/mcp` would keep the `workspace:*` devDependency specifiers in the published manifest.
 
-## Flagship workbooks
+## Built-in workbooks
 
-Each flagship ships with a realistic modeling flaw that its base case hides. The Exorcist finds the flaw from a fresh random seed. Nothing is scripted.
+Each built-in workbook ships with a realistic modeling flaw that its base case hides. In the web app, **Exorcise Model** finds the flaw from a fresh random seed; nothing is scripted. The first two are the flagships, also available as `flagship:1` and `flagship:2` in the CLI and the MCP server; the end-to-end suite runs fresh-seed discovery on both. The Wholesale Quote is the web app's copy of the Suture Crew sample, so the CLI and MCP server take it as a file (`samples/wholesale-quote.suture.json` in suture-crew).
 
 | Workbook | Pipeline | Flaw the Exorcist finds |
 |---|---|---|
@@ -151,7 +152,7 @@ packages/
 - **Bring your own data.** `.csv`, `.parquet`, and `.xlsx` files are parsed locally. The XLSX reader (exceljs) lives only in the lazily loaded ingest worker chunk.
 - **Honest telemetry.** Cold boot per engine, first evaluation (which may include boot), and warm DAG evaluation are reported separately.
 - **No main-thread jank.** The grid renders only the visible cells plus 4 rows and 2 columns of overscan, across 1,048,576 × 16,384 cells. An edit re-links only the edited cells, and the scheduler checks its 8 ms slice in every phase of a recalculation, so editing the input of 20,000 formulas never holds the main thread for 50 ms. X-Ray geometry is recomputed only when the window, layout, graph, selection, or lineage changes. The end-to-end tests fail on any main-thread task over 50 ms while scrolling, typing, recalculating, or rendering X-Ray.
-- **Small main bundle.** The main JavaScript is 195.1 kB gzip, against a 350 KB budget. exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
+- **Small main bundle.** The main JavaScript is about 195 kB gzip, against a 350 kB budget that CI enforces after every build (`scripts/bundle-budget.mjs`). exceljs, DuckDB-WASM, and Pyodide load only in their worker chunks. Hashed assets are cached as immutable for a year; there is no service worker, so COOP/COEP and deploys are never affected by a cached app shell.
 
 The design is specified in `.kiro/specs/` (requirements, design, and tasks for each of the five specs), and the binding rules are in `.kiro/steering/`.
 
@@ -168,6 +169,7 @@ pnpm build            # production builds: packages/web/dist, packages/cli/dist,
 pnpm typecheck        # strict TypeScript across the workspace
 pnpm --filter @g4stein/suture-mcp test:pack   # npm-install the packed MCP tarball outside the repo and run it
 pnpm run licenses     # dependency license audit
+pnpm run budget       # main-thread JavaScript ≤ 350 kB gzip (after pnpm build)
 ```
 
 Playwright end-to-end tests (17 on Chromium, plus the judge path on WebKit and Firefox; none skipped): five UI journeys (flagship discovery and replay, the 100k-row audit across sheets, CSV drag-and-drop with live SQL and Python, XLSX with a custom assertion and the Python trust gate, a 390×844 viewport with a DOM trademark scan and the loading shell), the 20,000-formula recalculation under the 50 ms task limit, the unisolated readiness pill, a real Suture Crew replay link, and the flagship, ingest, and worker-hardening specs. The browser projects need `playwright install --with-deps chromium webkit firefox`:

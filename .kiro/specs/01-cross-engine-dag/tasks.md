@@ -38,7 +38,7 @@ Phase 5 moved the real-engine tests and the engine code from `packages/web` to `
   - [x] 4.1 Implement `parse/dialect.ts` literal parsing and dialect detection (design §5.1).
     - Verify: a table test covers every literal rule, `=sql(` lowercase, leading whitespace, `#SPILL!`→`#REF!` literal, and `=1+SQL("x")`→`#VALUE!`.
     - _Requirements: 2.1–2.6_
-    - Evidence: d5c94a7 — `parse/dialect.ts`; `units.test.ts` (engine call nested → `#VALUE!`), `ingest.test.ts` (lossless literals).
+    - Evidence: d5c94a7 — `parse/dialect.ts`; `units.test.ts` (engine call nested → `#VALUE!`). `ingest.test.ts` (lossless literals) was added in cae91a1 (now in `packages/runtime/test/`, moved in 3aaebfe).
   - [x] 4.2 Implement the lexer and Pratt parser with `paren` preservation and offsets in parse errors.
     - Verify: `-2^2` evaluates to `4`, `2^3^2` parses left-associative, `1+` reports offset 2, and `=SUM(1))` reports the offset of the extra `)`.
     - _Requirements: 5.1, 5.2, 5.3_
@@ -101,7 +101,7 @@ Phase 5 moved the real-engine tests and the engine code from `packages/web` to `
     - Verify (core unit tests): a recording port captures the exact `SqlEvalRequest`/`PyEvalRequest` objects. An error input makes zero port calls, a scalar becomes `$1`, a range becomes `__suture_b0` with columns `A`,`B`, and the PY seed equals `mix32(seed, fnv1a32(key))`. These tests check request construction only and never pretend to run SQL or Python.
     - Verify (integration, real engines): Spec 02 task 9.1 runs the same workbooks against real DuckDB-WASM and real Pyodide.
     - _Requirements: 3.2–3.7, 4.3–4.7_
-    - Evidence: 746416e — exercised end to end against real DuckDB/Pyodide by `packages/web/test/flagships.test.ts`, `slice.duckdb.test.ts`, `ingest.test.ts`.
+    - Evidence: 746416e — exercised end to end against real DuckDB/Pyodide by `flagships.test.ts` (added in 746416e), `slice.duckdb.test.ts` (c45d8bd), and `ingest.test.ts` (cae91a1), all now in `packages/runtime/test/`, moved in 3aaebfe.
   - [ ] 7.4 Implement generations, supersession (cancel vs re-tag), and discarding stale results.
     - Verify: with a controllable port, edit A then edit B before A's request resolves: A's request is cancelled if dirty, otherwise re-tagged, and no stale commit occurs.
     - _Requirements: 10.3, 10.4, 10.5, 10.6_
@@ -125,4 +125,4 @@ Phase 5 moved the real-engine tests and the engine code from `packages/web` to `
   - [x] 9.1 Implement `recalculateAll` and the deterministic hashing primitives (`fnv1a32`, `mix32`).
     - Verify: known-answer tests for `mix32` and `fnv1a32`; `recalculateAll` equals incremental results after 50 random edits.
     - _Requirements: 11.1, 11.2, 11.3_
-    - Evidence: d5c94a7 — `determinism.pbt.test.ts` (incremental vs full); `slice.duckdb.test.ts` (`suture_h32` ≡ `lowbias32` on 10,000 inputs).
+    - Evidence: d5c94a7 — `determinism.pbt.test.ts` (incremental vs full). c45d8bd — `slice.duckdb.test.ts` (`suture_h32` ≡ `lowbias32` on 10,000 inputs) (now in `packages/runtime/test/`, moved in 3aaebfe).

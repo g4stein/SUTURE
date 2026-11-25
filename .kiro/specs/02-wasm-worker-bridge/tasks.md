@@ -64,7 +64,7 @@ Phase 5 moved the real-engine tests and the engine code from `packages/web` to `
   - [x] 6.1 Implement init: `loadPyodide({indexURL})` pinned to the installed version, `loadPackage(['numpy'])`, and an interrupt buffer when isolated.
     - Verify: Playwright checks that the network log contains no wheel other than numpy, and that the state is `degraded` with the exact reason string when not isolated.
     - _Requirements: 7.1–7.4, 8.7_
-    - Evidence: c45d8bd — `optionC.pyodide.test.ts` (only `numpy` loaded); `e2e/hardening.spec.ts` (interrupt buffer).
+    - Evidence: c45d8bd — `optionC.pyodide.test.ts` (only `numpy` loaded). 307f680 — `e2e/hardening.spec.ts` (interrupt buffer).
   - [x] 6.2 Implement `suture_bridge.py` (§4.5) and the JS↔Python call path with `finally`-based proxy destruction.
     - Verify: tests cover each `_to_result` branch, `1/0`→`#DIV/0!`, `np.array([1.0])/0`→`#DIV/0!`, `np.log(-1)`→`#NUM!`, `2**60`→`#NUM!`, `inputs['Z9']` undeclared→`#PY!`, a fresh namespace per scenario (a global set in run 1 is absent in run 2), and a live `PyProxy` count of 0 after 1,000 runs.
     - _Requirements: 7.5, 7.6, 7.7_
@@ -103,7 +103,7 @@ Phase 5 moved the real-engine tests and the engine code from `packages/web` to `
   - [ ] 9.2 Add the Playwright cold-load test (design §9).
     - Verify: it writes `cold-load.json` and fails when any Req 10.2 budget is exceeded.
     - _Requirements: 1.4, 10.1–10.3_
-    - Status: Not started: cold-boot times are measured in telemetry and logged by the E2E tests, but there is no budget-enforcing cold-load test yet.
+    - Status: Partly done. The main-thread JavaScript budget is enforced in CI after every build by `scripts/bundle-budget.mjs` (PR #9): it gzips the entry and its static imports, excludes workers, and fails over 350 kB. The three timing budgets are measured in telemetry and logged by the E2E tests, but no test fails on them yet.
   - [ ] 9.3 Add the bundle-boundary check.
     - Verify: a build test asserts that the main-thread chunk graph contains no module from `@duckdb/duckdb-wasm`, `pyodide`, or `exceljs`.
     - _Requirements: 1.1–1.3, 1.5_
@@ -113,4 +113,4 @@ Phase 5 moved the real-engine tests and the engine code from `packages/web` to `
   - [x] 10.1 Implement `ingest.worker.ts` per design §8.
     - Verify: a fixture `.xlsx` with formulas, shared formulas, dates, rich text, a cached `#N/A`, and a merged range gives the expected `raw` strings, header detection, and one warning per skipped feature.
     - _Requirements: 1.2, 5.3_
-    - Evidence: cae91a1 — `test/ingest.test.ts`, `e2e/ingest.spec.ts` (real exceljs-generated workbook; shared formulas translated by Suture).
+    - Evidence: cae91a1 — `test/ingest.test.ts` (now in `packages/runtime/test/`, moved in 3aaebfe). 307f680 — `e2e/ingest.spec.ts` (real exceljs-generated workbook; shared formulas translated by Suture).

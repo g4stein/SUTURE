@@ -439,11 +439,13 @@ export class AppStore {
     this.set({ gridReady: true });
     await new Promise((r) => setTimeout(r, 0));
     const hash = location.hash;
-    if (hash.startsWith('#replay=v1.')) {
+    // Any replay hash is decoded, so an unsupported version (e.g. a future `v2.`) reports why instead of being ignored.
+    if (hash.startsWith('#replay=')) {
       const a = await fromReplayFragment(hash, webCompressor);
       if ('error' in a) {
         await this.recalc(true);
-        this.set({ exorcist: { kind: 'error', message: `replay link: ${a.error}` }, panel: 'audit' });
+        // Most decode errors already start with "replay link"; only prefix the ones that do not.
+        this.set({ exorcist: { kind: 'error', message: a.error.startsWith('replay link') ? a.error : `replay link: ${a.error}` }, panel: 'audit' });
         return;
       }
       await this.hydrateReplay(a);

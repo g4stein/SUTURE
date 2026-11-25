@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { columnLetters, decodeScalar, MAX_COLS, MAX_ROWS, parseCellKey, toCellKey, type CellKey, type EngineId } from '@suture/core';
 import type { AppSnapshot, AppStore } from '../app/store.ts';
 import { formatSummary, formatValue } from '../app/format.ts';
-import { sheetLayout } from './columns.ts';
+import { labelWidthCap, sheetLayout } from './columns.ts';
 import { cellDisplay, CHIP_LABEL, EMPTY_DISPLAY } from './cellDisplay.ts';
 import { CellView, ENGINE_BORDER, ENGINE_TEXT } from './CellView.tsx';
 import {
@@ -36,8 +36,9 @@ export function Grid({ snap, store }: { readonly snap: AppSnapshot; readonly sto
   const colHeadRef = useRef<HTMLDivElement>(null);
   const rowHeadRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 960, h: 520 });
-  // Recomputed on sheet switch and structural change only, never while typing.
-  const layout: ColumnLayout = useMemo(() => sheetLayout(store.cellsOn(sheet), (c) => store.dialect(c.key)), [store, sheet, snap.structureVersion]);
+  // Recomputed on sheet switch, structural change, and label-cap change (narrow screens) only, never while typing.
+  const maxLabel = labelWidthCap(Math.max(0, size.w - ROW_HEADER_WIDTH));
+  const layout: ColumnLayout = useMemo(() => sheetLayout(store.cellsOn(sheet), (c) => store.dialect(c.key), maxLabel), [store, sheet, snap.structureVersion, maxLabel]);
   const [win, setWin] = useState<VisibleWindow>(() => visibleWindow(0, 0, 960, 520, ROWS, layout));
   const winRef = useRef(win);
   winRef.current = win;

@@ -38,9 +38,9 @@ export function ReplayPrompt({ snap, store }: { readonly snap: AppSnapshot; read
 /** < 768 px: readable note that desktop is optimal; the page itself never overflows horizontally. */
 export function NarrowBanner(): ReactNode {
   return (
-    <div data-testid="narrow-banner" className="border-b border-slate-line bg-slate-raised px-3 py-1.5 text-[11px] text-ink-muted md:hidden">
+    <aside aria-label="Screen size" data-testid="narrow-banner" className="border-b border-slate-line bg-slate-raised px-3 py-1.5 text-[11px] text-ink-muted md:hidden">
       Suture is built for desktop screens. Everything works here, including Exorcise Model; the grid scrolls inside its frame.
-    </div>
+    </aside>
   );
 }
 

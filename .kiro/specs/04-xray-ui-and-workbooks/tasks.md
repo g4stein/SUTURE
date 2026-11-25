@@ -44,7 +44,7 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
   - [ ] 4.1 Implement `engineLabel` and `ReadinessPill` with the popover and Retry.
     - Verify: a unit test maps every `EngineState` per design §4; an e2e on a fresh page shows `Grid: Ready | DuckDB: Lazy | Python/NumPy: Lazy`, then `Loading` and `Ready` after the first `=SQL()`; an unisolated page shows `Degraded (restart on timeout)` for both engines with the full reason in the accessible name; after a crash respawn the label goes `Loading` → `Ready`, never back to `Lazy`; a known-length download shows a percentage and an unknown-length one does not.
     - _Requirements: 4.1–4.6_
-    - Evidence: 68bccbb — `chrome/ReadinessPill.tsx`, `test/ui.test.ts` (every state, the colon form, percentage only with a known total, accessible name with reason); Journey 3 (Blank: both Lazy, then `Loading → Ready`, never back to Lazy; telemetry popover fields).
+    - Evidence: 68bccbb — `chrome/ReadinessPill.tsx`; `test/ui.test.ts` (added in f30f2fa: every state, the colon form, percentage only with a known total, accessible name with reason); Journey 3 (Blank: both Lazy, then `Loading → Ready`, never back to Lazy; telemetry popover fields).
     - Evidence (Phase 5): aa49a8f and the docs commit — `e2e/journeys.spec.ts` "Req 4.1" opens the app page without COOP/COEP. Both engines start `Lazy`, then each shows `Degraded (restart on timeout)` once it loads (DuckDB on the first `=SQL()`, Python on the first `=PY()`), with the full reason in the pill's accessible name, `crossOriginIsolated: false` and the degraded note in the popover, and both cells evaluate.
     - Status: Partial. The post-crash label sequence (`Loading` → `Ready`, never `Lazy`) is still covered only at the engine level (`e2e/hardening.spec.ts`), not on the app page.
 
@@ -66,7 +66,7 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
   - [x] 6.1 Implement `importKind`, size limits, `sanitizeDatasetName`, `validateDocument`, and routing.
     - Verify: unit tests cover each rejection path in Req 6.4 and the `.suture.json` detection.
     - _Requirements: 6.3, 6.4_
-    - Evidence: 68bccbb — `import/routeFile.ts`, `import/validateDocument.ts`; `test/ui.test.ts` (unsupported type, oversize, JSON paths for an invalid kind and an inverted domain); `test/ingest.test.ts` (`sanitizeDatasetName`).
+    - Evidence: 68bccbb — `import/routeFile.ts`, `import/validateDocument.ts` (now `packages/runtime/src/workbooks/validateDocument.ts`, moved in 3aaebfe); `test/ui.test.ts` (added in f30f2fa: unsupported type, oversize, JSON paths for an invalid kind and an inverted domain); `ingest.test.ts` (`sanitizeDatasetName`; now in `packages/runtime/test/`).
   - [x] 6.2 Implement CSV, Parquet, and XLSX import with the import report, progress, and the drop zone.
     - Verify: an e2e drops a CSV and queries it with `=SQL()`; an `.xlsx` gives the expected sheets, datasets, error counts, and warnings.
     - _Requirements: 6.1, 6.2, 6.6_
@@ -74,7 +74,7 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
   - [x] 6.3 Implement `gatedPyEngine` and the trust banner.
     - Verify: opening an imported file with `=PY()` makes no Pyodide network request and shows the exact blocked message; trusting recalculates and evaluates the cells.
     - _Requirements: 6.5_
-    - Evidence: 68bccbb — `engines/gatedPy.ts`, `chrome/Banners.tsx`; `test/ui.test.ts` (inner engine never called); Journey 4 (`.xlsx` with `=PY()`: `#PY!` with the exact message, Pyodide `notLoaded`, no `pyodide.asm.wasm` request, Exorcise disabled, Trust evaluates to 4); Journey 4 fresh page (`.suture.json` Python is untrusted again, and the replay waits for Trust).
+    - Evidence: 68bccbb — `engines/gatedPy.ts` (now `packages/runtime/src/bridge/gatedPy.ts`, moved in 3aaebfe), `chrome/Banners.tsx`; `test/ui.test.ts` (added in f30f2fa: inner engine never called); Journey 4 (`.xlsx` with `=PY()`: `#PY!` with the exact message, Pyodide `notLoaded`, no `pyodide.asm.wasm` request, Exorcise disabled, Trust evaluates to 4); Journey 4 fresh page (`.suture.json` Python is untrusted again, and the replay waits for Trust).
 
 - [x] 7. Exorcist panel and replay
   - [x] 7.1 Implement the Exorcist Audit Studio (start/stop, mode, seed, progress, Tier 1 and Tier 2 status, verdict card, action bar, assertion and domain editor) and stale marking.
@@ -90,11 +90,11 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
   - [x] 8.1 Author `workbooks/saasRunway.ts` per design §7.1; built-in hashes are computed at runtime with `workbookHash`.
     - Verify: a test against real engines checks that all assertions hold at the base case and that the session mode is `batched`.
     - _Requirements: 8.1–8.5_
-    - Evidence: 746416e — authored as `packages/web/src/workbooks/saasRunway.ts` (typed module instead of JSON); built-in hashes are computed at runtime over the canonical definition.
+    - Evidence: 746416e — authored as `packages/web/src/workbooks/saasRunway.ts` (typed module instead of JSON; now `packages/runtime/src/workbooks/saasRunway.ts`, moved in 3aaebfe); built-in hashes are computed at runtime over the canonical definition.
   - [x] 8.2 Author `workbooks/ecommerceMargin.ts` per design §7.2.
     - Verify: a test against real engines checks that all base-case assertions hold and that the session mode is `batched`; `Orders!A1` and `Segments!A1` do not depend on `Params`.
     - _Requirements: 9.1–9.8_
-    - Evidence: 746416e — `packages/web/src/workbooks/ecommerceMargin.ts`; 100,000 rows synthesized once, cached upstream of Params.
+    - Evidence: 746416e — `packages/web/src/workbooks/ecommerceMargin.ts` (now `packages/runtime/src/workbooks/ecommerceMargin.ts`, moved in 3aaebfe); 100,000 rows synthesized once, cached upstream of Params.
 
 - [ ] 9. Genuine discovery tests
   - [x] 9.1 Add the estimation and control tests (design §8) for both flagships.
@@ -140,3 +140,17 @@ Phase 4 commits on `feat/xray-studio-ui`: 68bccbb (palette, command bar, readine
   - [x] 13.3 Run the judge path in WebKit and Firefox.
     - Verify: `e2e/browsers.spec.ts` runs in the `webkit` and `firefox` Playwright projects in CI: the landing KPI evaluates, Exorcise Model finds `runway-non-negative`, Apply trips it, and the X-Ray fracture draws, with the readiness pill `degraded` where the browser is not cross-origin isolated.
     - _Requirements: 11.8_
+
+- [x] 14. Pre-submission audit fixes (PR #9)
+  - [x] 14.1 After a replay, say that the grid still shows base values; report an unsupported replay version; print each decode error once.
+    - Verify: Journey 1 sees `replay-hint` after the fresh-page replay and no hint after Apply Counterexample; `/#replay=v2.abc` shows `replay link: not a Suture v1 replay link`; the corrupted v1 link shows a single `replay link …` message.
+    - _Requirements: 7.3_
+  - [x] 14.2 On phones, cap label columns at half the grid body so landing on a KPI cell does not scroll its label out of view.
+    - Verify: Journey 5 at 390×844 sees `Model!B5` in the viewport with the grid's `scrollLeft` at 0.
+    - _Requirements: 11.4_
+  - [x] 14.3 Accessibility: tablists hold only tabs (the add-sheet, datasets, and collapse buttons sit beside them); the wordmark is the page's `h1` ("Suture X-Ray Studio"); X-Ray dims to 55 % opacity instead of 30 % (dimmed text 4.8:1); the Apply Counterexample text meets 4.5:1 on its fill; panel section titles are `h2` under the page `h1`; the narrow-screen banner is a labelled `aside`; disabled actions drop their accent colors.
+    - Verify: axe-core reports no `aria-required-children` violation; the E2E suite selects tabs by test id and `aria-selected`, unchanged.
+    - _Requirements: 11.3_
+  - [x] 14.4 Add a favicon (the stitch mark) and Open Graph / Twitter preview tags with `og.png` (`docs/hero.png`).
+    - Verify: `/favicon.svg` and `/og.png` are served from `packages/web/public`; `index.html` carries absolute `og:image` and `og:url`.
+    - _Requirements: none (presentation polish); the icon uses the steering token colors_

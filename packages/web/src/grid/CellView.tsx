@@ -30,7 +30,7 @@ export const CellView = memo(function CellView(p: CellViewProps): ReactNode {
       role="gridcell" aria-colindex={p.col + 1} aria-selected={p.selected} data-key={p.cellKey} data-testid={p.kind === 'empty' && !p.selected ? undefined : `cell-${p.cellKey}`}
       data-kind={p.kind} data-dim={p.dim ? 'true' : undefined}
       title={p.title ?? undefined}
-      className={`absolute top-0 flex h-6 items-center gap-1 overflow-hidden border-b border-r border-slate-line/70 px-1.5 font-mono text-[12px] leading-6 ${align} ${p.dim ? 'opacity-30' : ''} ${p.lineage ? 'bg-fracture/10' : ''} ${p.selected ? 'z-[2] outline outline-2 -outline-offset-2 outline-engine-formula' : ''}`}
+      className={`absolute top-0 flex h-6 items-center gap-1 overflow-hidden border-b border-r border-slate-line/70 px-1.5 font-mono text-[12px] leading-6 ${align} ${p.dim ? 'opacity-[0.55]' : ''} ${p.lineage ? 'bg-fracture/10' : ''} ${p.selected ? 'z-[2] outline outline-2 -outline-offset-2 outline-engine-formula' : ''}`}
       style={{ left: p.x, width: p.w }}
     >
       {p.chip !== null && (

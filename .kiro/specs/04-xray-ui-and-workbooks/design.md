@@ -512,7 +512,7 @@ All journeys run on the production build behind COOP `same-origin` / COEP `crede
 | 4 | Real `.xlsx` with formulas (`#NAME?` for a function outside the 30), imported Python blocked with no Pyodide request, trust, a custom fuzz domain and `lte` assertion edited in the studio, in-process Exorcist, Apply trips the custom assertion, no uploads |
 | 5 | 390×844: no horizontal overflow for all three workbooks, Exorcise Model in the viewport and runnable, zero banned names in the DOM (§9) |
 
-Two more tests in `e2e/journeys.spec.ts` complete the suite (Phase 5, 16 tests, none skipped):
+Two more tests in `e2e/journeys.spec.ts` complete the Phase 5 suite (16 tests). PR #8 added the Req 7.6 Crew-link test, for 17 Chromium tests, none skipped, plus the judge path on WebKit and Firefox (`e2e/browsers.spec.ts`):
 - **Req 1.5:** editing the input of 20,000 formulas runs with no main-thread task over 50 ms. It relies on the Spec 01 incremental graph and sliced preamble, plus the store's edit-scoped re-index. The same test jumps through a defined name in the name box.
 - **Req 4.1:** the app page served without COOP/COEP shows `Degraded (restart on timeout)` for each engine once it loads, with the reason in the accessible name and the `crossOriginIsolated` note in the popover.
 
@@ -521,5 +521,5 @@ The Phase 2 slice spec was retired with the slice workbook; Journey 3 carries it
 ## 14. Caching, narrow viewports, and layout
 
 - **No service worker.** Hashed `/assets/*` files are served with `Cache-Control: public, max-age=31536000, immutable` (`vercel.json`); `index.html` keeps `max-age=0, must-revalidate`, so a deploy never strands old chunks; COOP/COEP headers are unchanged. The engine WASM comes from jsDelivr, which already serves it with a one-year `max-age` (DuckDB also `immutable`). A service worker would add offline use, at the cost of precaching about 40 MB of cross-origin engine files, re-serving every navigation with exact COOP/COEP headers, and the risk of a stale worker serving an `index.html` that points at deleted chunks.
-- **Narrow viewports (< 768 px):** the layout stacks into one column, the studio becomes a collapsible bottom sheet, the top bar wraps with Exorcise Model visible, a banner says desktop is optimal, and only the grid scrolls sideways (`html, body { overflow: hidden }`).
-- **Bundle:** the main chunk is 668.1 kB raw / 194.3 kB gzip (budget 350 KB; Phase 5 added 1.4 kB gzip for the incremental scheduler in core). exceljs/jszip, DuckDB-WASM, and Pyodide appear only in their worker chunks.
+- **Narrow viewports (< 768 px):** the layout stacks into one column, the studio becomes a collapsible bottom sheet, the top bar wraps with Exorcise Model visible, a banner says desktop is optimal, and only the grid scrolls sideways (`html, body { overflow: hidden }`). Label columns are capped at half the grid body (`labelWidthCap` in `grid/columns.ts`), so a label and the value beside it both fit and landing on a KPI cell never scrolls the start of its label out of view.
+- **Bundle:** the main chunk is about 671 kB raw / 195 kB gzip (budget 350 kB, enforced after every CI build by `scripts/bundle-budget.mjs`; Phase 5 added 1.4 kB gzip for the incremental scheduler in core). exceljs/jszip, DuckDB-WASM, and Pyodide appear only in their worker chunks.
