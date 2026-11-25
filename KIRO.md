@@ -4,17 +4,19 @@ Suture was built in **Kiro Web** across a few days of sessions. Every claim belo
 
 ## Kiro Web: one long build, steered by a working rule
 
-Suture went from an empty repository to five phases, seven merged pull requests, and a published npm package:
+Suture went from an empty repository to six phases (0–5), three polish passes, nine pull requests, and a published npm package:
 
 | PR | What landed |
 |---|---|
-| #1 | The Kiro constitution: steering, hooks, agents |
-| #2 | Four specs |
-| #3 | A vertical slice |
-| #4 | The engine and the flagships |
-| #5 | The production UI |
-| #6 | The CLI and MCP server |
+| #1 | Phase 0: the Kiro constitution: steering, hooks, agents |
+| #2 | Phase 1: four specs |
+| #3 | Phase 2: a vertical slice |
+| #4 | Phase 3: the engine and the flagships |
+| #5 | Phase 4: the production UI |
+| #6 | Phase 5: the CLI and MCP server |
 | #7 | npm packaging and polish |
+| #8 | Final judge polish: Crew links open directly, the judge path on WebKit and Firefox in CI, a one-row command bar, this write-up |
+| #9 | A full pre-submission audit: every doc claim re-checked against the code, a CI bundle-budget gate, replay and phone-layout fixes, accessibility fixes |
 
 - **Discuss-first rule.** Early on we stored it as a Kiro learning: before any edit, Kiro proposes options, trade-offs, and a recommendation, then waits for approval; read-only investigation is free. Each phase therefore started with a written proposal and a numbered list of decisions, and only then code.
 - **Sub-agents** handled the investigation:
@@ -22,7 +24,7 @@ Suture went from an empty repository to five phases, seven merged pull requests,
   - The `introspect` agent read the Kiro docs to get `.kiro/settings/mcp.json` exactly right.
 - **One verification gate**, enforced in every phase and then in CI:
   - license audit, typecheck, unit and property tests, build with a bundle budget;
-  - the Playwright end-to-end suite (Chromium, plus WebKit and Firefox smoke tests);
+  - the Playwright end-to-end suite on Chromium (since PR #8, also the judge path on WebKit and Firefox);
   - for the npm package, a packed-tarball smoke test.
 
 ## Spec-driven development: 5 specs, 291 EARS criteria
@@ -89,7 +91,7 @@ The app also includes two skills, a paused nightly cron, and a dashboard page.
 | `suture_list_workbooks` | the flagships and every `.suture.json` in the workspace |
 | `suture_inspect_lineage` | a cell's dialect, formula, precedents, dependents, and full topological chain |
 | `suture_run_audit` | a real Exorcist run: Tier 1 and Tier 2 verdicts, shrunk inputs, failing lineage, and a replay artifact |
-| `suture_verify_patch` | applies one or more formula patches in memory, replays the counterexample, re-audits with the same seed, and reports `{ ok, counterexampleFixed, freshAuditPassed, regressions, baseValueDiffs }` |
+| `suture_verify_patch` | applies one or more formula patches in memory, replays the counterexample, re-audits with the same seed, and reports `{ ok, seed, counterexampleFixed, freshAuditPassed, regressions, baseValueDiffs }` |
 
 **What MCP made possible.** An agent can prove a spreadsheet fix instead of guessing at it.
 
