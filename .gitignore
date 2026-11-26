@@ -1,11 +1,4 @@
-# Suture — VCS ignore rules
-#
-# POLICY: The `.kiro/` directory (steering, agents, hooks, specs, audit) is the
-# engineering constitution of this repository and MUST be tracked. Never add
-# `.kiro/` or any of its subdirectories to this file. The negation below makes
-# that intent explicit and defends against broader patterns added later.
-!.kiro/
-!.kiro/**
+# Suture — VCS ignore rules (the Kiro folder is always tracked: steering §6)
 
 # Dependencies
 node_modules/
