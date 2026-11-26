@@ -4,7 +4,7 @@ Suture was built in **Kiro Web** across a few days of sessions. Every claim belo
 
 ## Kiro Web: one long build, steered by a working rule
 
-Suture went from an empty repository to six phases (0–5), three polish passes, nine pull requests, and a published npm package:
+Suture went from an empty repository to six phases (0–5), three polish passes in PRs #1–#9 (below), and a published npm package. Later PRs are housekeeping only (for example #10, which stops `.gitignore` from naming the Kiro folder).
 
 | PR | What landed |
 |---|---|
